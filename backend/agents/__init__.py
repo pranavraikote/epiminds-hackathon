@@ -12,8 +12,10 @@ all_agents = [
     Forager(),
     Skeptic(),
     Strategist(),
+    Mutator(),
+    AudienceSniper(),
 ]
 
-mutator_agent = Mutator()
-audience_sniper_agent = AudienceSniper()
+# Singletons for the follow-up fast path (run_followup bypasses the swarm bus)
 strategist_agent = Strategist()
+mutator_agent = Mutator()

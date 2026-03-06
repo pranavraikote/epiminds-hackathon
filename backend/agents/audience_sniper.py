@@ -6,6 +6,11 @@ class AudienceSniper(BaseAgent):
     role = "Audience Sniper"
     focus = "Identify micro-segments primed to convert — specific enough to drop straight into an ad platform"
 
+    # Waits for a Mutation scent — only targets audiences once hooks are evolved
+    react_only = True
+    wake_on = frozenset({"Mutation"})
+    wake_threshold = 0.80
+
     async def run(self, state: dict) -> dict:
         # Stash the trail on self so _search_queries can derive live terms from it
         self._trail_state = state

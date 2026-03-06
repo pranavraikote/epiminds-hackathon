@@ -6,6 +6,11 @@ class Mutator(BaseAgent):
     role = "Strategy Mutator"
     focus = "Evolve the highest-intensity Strategy scent into 3 more potent variations"
 
+    # Waits for a real Strategy scent — never fires on an empty or pre-strategic blackboard
+    react_only = True
+    wake_on = frozenset({"Strategy"})
+    wake_threshold = 0.75
+
     def _search_queries(self, brief: dict) -> list[str]:
         return []  # Mutator reads from the blackboard only — no external foraging
 

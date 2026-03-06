@@ -2,7 +2,7 @@ import asyncio
 import threading
 from typing import AsyncGenerator, Optional
 
-from agents import all_agents, mutator_agent, audience_sniper_agent, strategist_agent
+from agents import all_agents, mutator_agent, strategist_agent
 from state import get_state, update_state, add_scent, decay_and_reinforce
 
 REACTION_TIMEOUT = 60   # seconds an agent waits for a peer scent before going idle
@@ -104,7 +104,9 @@ def _scent_event(result: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Data agent: forages independently (Pass 1), reacts to peer scent (Pass 2)
+# Data agent: all 7 agents go through this — foragers run independently first,
+# react_only agents (strategist, skeptic, mutator, audience_sniper) wait for
+# qualifying peer scents before acting. Coordination is entirely via the blackboard.
 # ---------------------------------------------------------------------------
 
 MAX_AGENT_ROUNDS = 5  # maximum stigmergic reactions per agent per swarm run
@@ -228,90 +230,56 @@ async def run_swarm(campaign_id: str, demo_kill: Optional[set] = None) -> AsyncG
     sse_q: asyncio.Queue = asyncio.Queue()
     lock = asyncio.Lock()
 
-    tasks = [
+    # Foraging agents run independently and react to peer scents.
+    # Synthesis agents (mutator, audience_sniper) are also in all_agents but are react_only —
+    # they wake on typed scents (Strategy, Mutation) rather than foraging the field directly.
+    # All 7 go through the same _data_agent mechanism — no coordinator.
+    _SYNTHESIS = {"mutator", "audience_sniper"}
+    foraging_tasks = [
         asyncio.create_task(_data_agent(a, campaign_id, bus, sse_q, lock, round_offset, demo_kill))
-        for a in all_agents
+        for a in all_agents if a.name not in _SYNTHESIS
+    ]
+    synthesis_tasks = [
+        asyncio.create_task(_data_agent(a, campaign_id, bus, sse_q, lock, round_offset, demo_kill))
+        for a in all_agents if a.name in _SYNTHESIS
     ]
 
-    all_done = asyncio.Event()
+    synthesis_done = asyncio.Event()
 
     async def _watch():
-        await asyncio.gather(*tasks, return_exceptions=True)
-        all_done.set()
+        await asyncio.gather(*synthesis_tasks, return_exceptions=True)
+        synthesis_done.set()
 
     watcher = asyncio.create_task(_watch())
     deadline = loop.time() + SAFETY_TIMEOUT
+    foraging_cancelled = False
 
     try:
-        while not all_done.is_set():
+        while not synthesis_done.is_set():
             remaining = deadline - loop.time()
-            if remaining <= 0:
-                yield {"type": "status", "phase": "swarm", "message": "Safety timeout — moving to mutation phase."}
-                for t in tasks:
+            if remaining <= 0 and not foraging_cancelled:
+                yield {"type": "status", "phase": "swarm", "message": "Safety timeout — foraging agents released, synthesis converging..."}
+                for t in foraging_tasks:
                     t.cancel()
-                break
+                foraging_cancelled = True
+                deadline = loop.time() + 120  # 2-min extension for synthesis to complete
             try:
-                event = await asyncio.wait_for(sse_q.get(), timeout=min(0.3, remaining))
+                event = await asyncio.wait_for(sse_q.get(), timeout=0.3)
                 yield event
             except asyncio.TimeoutError:
                 pass
     finally:
         watcher.cancel()
-
-    while not sse_q.empty():
-        yield sse_q.get_nowait()
-
-    # Phase 3: Mutation — Mutator evolves the top Strategy scent
-    yield {"type": "status", "phase": "swarm", "message": "Mutator entering the field — evolving top strategy..."}
-    try:
-        mutator_state = await get_state(campaign_id)
-        mutator_result = await mutator_agent.run(mutator_state)
-        mutator_result.update(round=3 + round_offset)
-        mutator_result.setdefault("intensity", 0.85)
-        await _commit(mutator_result, campaign_id, lock, sse_q)
-        if mutator_result["status"] == "success":
-            yield _scent_event(mutator_result)
-        else:
-            yield {
-                "type": "agent_offline", "phase": "swarm", "agent": "mutator",
-                "message": f"mutator offline: {mutator_result.get('error', 'unknown')[:120]}",
-            }
-    except Exception as e:
-        yield {
-            "type": "agent_offline", "phase": "swarm", "agent": "mutator",
-            "message": f"mutator offline (infra): {str(e)[:120]}",
-        }
-
-    while not sse_q.empty():
-        yield sse_q.get_nowait()
-
-    # Phase 4: Audience Sniper — reads full trail including mutations, names micro-segments
-    yield {"type": "status", "phase": "swarm", "message": "Audience Sniper locking targets — identifying micro-segments..."}
-    try:
-        sniper_state = await get_state(campaign_id)
-        sniper_result = await audience_sniper_agent.run(sniper_state)
-        sniper_result.update(round=4 + round_offset)
-        sniper_result.setdefault("intensity", 0.88)
-        await _commit(sniper_result, campaign_id, lock, sse_q)
-        if sniper_result["status"] == "success":
-            yield _scent_event(sniper_result)
-        else:
-            yield {
-                "type": "agent_offline", "phase": "swarm", "agent": "audience_sniper",
-                "message": f"audience_sniper offline: {sniper_result.get('error', 'unknown')[:120]}",
-            }
-    except Exception as e:
-        yield {
-            "type": "agent_offline", "phase": "swarm", "agent": "audience_sniper",
-            "message": f"audience_sniper offline (infra): {str(e)[:120]}",
-        }
+        for t in foraging_tasks:
+            if not t.done():
+                t.cancel()
 
     while not sse_q.empty():
         yield sse_q.get_nowait()
 
     await asyncio.to_thread(bus.stop)
 
-    # Emergent output — blackboard sorted by intensity, top scent per species
+    # Emergent output — blackboard sorted by intensity, top scent per agent
     final_state = await get_state(campaign_id)
     successful = [
         o for o in final_state["observations"]
