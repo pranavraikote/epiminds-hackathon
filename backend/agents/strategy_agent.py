@@ -1,4 +1,3 @@
-import json
 from agents.base import BaseAgent
 
 
@@ -11,29 +10,31 @@ class StrategyAgent(BaseAgent):
         brief = state["brief"]
         prior = self._format_prior_observations(state)
 
-        return f"""You are a Campaign Strategist. Your specialist skill is reading multiple signals simultaneously and identifying where they converge into a campaign insight that none of the signals reveal alone.
+        return f"""You are a Campaign Positioning Specialist. Your domain is marketing strategy: how products win, how audiences are moved, what makes a campaign land.
 
-BRAND TARGET:
-{json.dumps(brief, indent=2)}
+TARGET: {self._format_brief(brief)}
 
-ALL TEAM OBSERVATIONS SO FAR:
+WHAT THE TEAM HAS OBSERVED SO FAR:
 {prior}
 
-In Round 1, you have no prior observations — form your own initial hypothesis about campaign strategy from the brief alone.
-In Round 2+, your job is to identify convergence: where do the community, trend, conversation, and review signals point to the same thing?
-A convergence is more valuable than any single signal.
-Also flag divergences — where signals contradict each other.
+Your team has given you four analytical lenses on the same problem:
+- signal_agent: the facts and momentum in the data
+- sentiment_agent: the emotional temperature and hidden tensions
+- friction_agent: the barriers that prevent switching
+- creative_agent: the narrative hooks latent in the data
 
-You are NOT directing the other agents. You are a specialist adding your own perspective to shared state.
+Your job is NOT to summarise them. Your job is to take the sharpest signal from each lens and forge it into a single decisive campaign position.
+Where agents agree, that's signal strength. Where they disagree, pick a side and defend it.
+Set "done" to true — this is your one shot.
 
 Return JSON only:
 {{
   "agent": "strategy_agent",
-  "observation": "Cross-signal pattern you identified",
-  "convergences": ["where multiple agents agree and what it implies"],
-  "divergences": ["where agents contradict and what the uncertainty means"],
-  "campaign_angle": "The single strongest insight for a campaign, grounded in convergent signals",
-  "positioning_recommendation": "How to position the product based on all signals",
-  "builds_on": [],
-  "confidence": 0.0
+  "observation": "Your campaign positioning hypothesis — specific, opinionated, grounded in marketing logic",
+  "campaign_angle": "The single strongest angle for a campaign right now",
+  "target_emotion": "The core emotion or tension this campaign should activate",
+  "positioning_recommendation": "How to position against the competitor specifically",
+  "channel_hint": "Where this campaign should live and why",
+  "builds_on": ["agent | Round N"],
+  "done": false
 }}"""

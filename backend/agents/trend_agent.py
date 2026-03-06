@@ -11,29 +11,36 @@ class TrendAgent(BaseAgent):
         brief = state["brief"]
         trends = state.get("live_data", {}).get("trends", {})
         prior = self._format_prior_observations(state)
+        trends_empty = trends.get("_source") == "error" or not trends.get("trend_direction")
 
-        return f"""You are a Search Trend Analyst. You interpret Google Trends data to detect momentum shifts.
+        if trends_empty:
+            empty_note = "\nNOTE: Google Trends data is unavailable. Set done=true — you have no data source to contribute from.\n"
+        else:
+            empty_note = ""
 
-BRAND TARGET:
-{json.dumps(brief, indent=2)}
+        return f"""You are a Search Trend Analyst reading momentum signals for a campaign team.
 
-LIVE SEARCH TREND DATA:
-{json.dumps(trends, indent=2)}
+TARGET: {json.dumps(brief)}
 
-PRIOR TEAM OBSERVATIONS (build on these, don't repeat):
+GOOGLE TRENDS DATA:
+{json.dumps(trends, indent=2)}{empty_note}
+
+PRIOR TEAM OBSERVATIONS:
 {prior}
 
-Analyze search momentum. Look for: rising vs falling interest, category timing, competitor momentum.
-If other agents have posted observations, react explicitly — especially if trends confirm or contradict what they found.
+Read momentum: rising/falling interest, timing windows, competitor trajectory.
+React to prior observations — especially if trends confirm or contradict community/review findings.
+If Trends data is unavailable, set done=true immediately — do not speculate without data.
+Set "done" to true once you have no new momentum insight beyond what's already captured.
 
 Return JSON only:
 {{
   "agent": "trend_agent",
-  "observation": "What the search trend data reveals",
-  "momentum": "rising / falling / stable with context",
-  "timing_insight": "Is now a good or bad time to advertise? Why?",
-  "competitor_comparison": "How does product search compare to competitor",
-  "campaign_implication": "What this means for campaign timing and spend",
-  "builds_on": [],
-  "confidence": 0.0
+  "observation": "What search momentum reveals — be specific about direction and magnitude",
+  "momentum": "rising / falling / stable — with numbers if available",
+  "timing_insight": "Good or bad time to advertise, and why",
+  "competitor_comparison": "Product vs competitor search trajectory",
+  "campaign_implication": "Specific timing or spend recommendation",
+  "builds_on": ["agent | Round N"],
+  "done": false
 }}"""

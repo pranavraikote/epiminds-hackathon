@@ -11,30 +11,36 @@ class ConversationAgent(BaseAgent):
         brief = state["brief"]
         hn = state.get("live_data", {}).get("hackernews", {})
         prior = self._format_prior_observations(state)
+        hn_empty = hn.get("_source") == "error" or not hn.get("top_posts")
 
-        return f"""You are a Developer Conversation Analyst. You read HackerNews to understand how technical and professional audiences talk about products.
+        if hn_empty:
+            empty_note = "\nNOTE: HackerNews data is unavailable. Set done=true — you have no data source to contribute from.\n"
+        else:
+            empty_note = ""
 
-BRAND TARGET:
-{json.dumps(brief, indent=2)}
+        return f"""You are a Developer Conversation Analyst reading HackerNews for a campaign team.
 
-LIVE HACKERNEWS DATA:
-{json.dumps(hn, indent=2)}
+TARGET: {json.dumps(brief)}
 
-PRIOR TEAM OBSERVATIONS (build on these, don't repeat):
+HACKERNEWS DATA:
+{json.dumps(hn, indent=2)}{empty_note}
+
+PRIOR TEAM OBSERVATIONS:
 {prior}
 
-Analyze how technical/professional users discuss this product. Look for: word-of-mouth signals,
-credibility markers, concerns, comparisons to alternatives.
-If other agents have posted observations, react — especially if HN sentiment aligns or conflicts with Reddit.
+Read how technical/professional users discuss this product: word-of-mouth, credibility, concerns, comparisons.
+React to prior observations — especially where HN sentiment agrees or conflicts with Reddit/Product Hunt.
+If HackerNews data is unavailable, set done=true immediately — do not speculate without data.
+Set "done" to true once you have no new insight the team hasn't already captured.
 
 Return JSON only:
 {{
   "agent": "conversation_agent",
-  "observation": "What the technical community is saying",
-  "sentiment": "positive / negative / mixed with context",
+  "observation": "What the technical community is saying — cite specific themes or quotes",
+  "sentiment": "positive / negative / mixed — with specific reasons",
   "credibility_signals": ["signal1"],
   "concerns": ["concern1"],
-  "campaign_implication": "What this means for messaging to professional/technical buyers",
-  "builds_on": [],
-  "confidence": 0.0
+  "campaign_implication": "What this means for messaging to technical buyers",
+  "builds_on": ["agent | Round N"],
+  "done": false
 }}"""

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Epiminds — Campaign Intelligence Swarm</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    body { font-family: 'Inter', sans-serif; background: #0a0a0f; color: #e2e8f0; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .agent-card { animation: slideIn 0.3s ease-out; }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .pulse-dot { animation: pulse 1.5s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .status-bar { border-left: 2px solid #334155; }
+    .builds-tag { font-size: 0.65rem; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+    <div>
+      <h1 class="text-lg font-semibold tracking-tight">Epiminds</h1>
+      <p class="text-xs text-slate-500 mono">Campaign Intelligence Swarm</p>
+    </div>
+    <div id="status-badge" class="hidden items-center gap-2 text-xs mono px-3 py-1.5 rounded-full border border-slate-700 text-slate-400">
+      <span id="pulse" class="pulse-dot w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+      <span id="status-text">Idle</span>
+    </div>
+  </header>
+
+  <!-- Launch form -->
+  <div id="launch-panel" class="max-w-2xl mx-auto mt-16 px-6">
+    <div class="mb-10">
+      <h2 class="text-2xl font-semibold mb-2">Launch a Campaign</h2>
+      <p class="text-slate-400 text-sm">Describe what you want to analyze. A swarm of agents will read live signals and produce a campaign position.</p>
+    </div>
+
+    <div class="space-y-4">
+      <div>
+        <label class="text-xs text-slate-400 mono uppercase tracking-widest block mb-1.5">What do you want to campaign for?</label>
+        <textarea id="prompt" rows="3" placeholder="e.g. Perplexity AI vs Google Search&#10;e.g. How should Notion position against Linear for enterprise teams?&#10;e.g. Launch campaign for a new AI coding tool"
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none leading-relaxed"></textarea>
+        <p class="text-xs text-slate-600 mono mt-1.5">Use "vs" to compare against a competitor, or describe freely</p>
+      </div>
+      <button id="launch-btn" onclick="launch()"
+        class="w-full mt-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 transition-colors rounded-lg py-3 text-sm font-medium">
+        Launch Swarm
+      </button>
+    </div>
+  </div>
+
+  <!-- Live stream view -->
+  <div id="stream-panel" class="hidden max-w-5xl mx-auto px-6 py-8">
+
+    <!-- Top bar -->
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h2 id="stream-title" class="text-xl font-semibold"></h2>
+        <p id="stream-subtitle" class="text-xs text-slate-500 mono mt-0.5"></p>
+      </div>
+      <button onclick="reset()" class="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 rounded px-3 py-1.5 transition-colors">
+        New campaign
+      </button>
+    </div>
+
+    <!-- Agent legend -->
+    <div class="flex flex-wrap gap-2 mb-6">
+      <span class="text-xs mono px-2 py-1 rounded bg-blue-900/40 border border-blue-700/50 text-blue-300">signal_agent</span>
+      <span class="text-xs mono px-2 py-1 rounded bg-violet-900/40 border border-violet-700/50 text-violet-300">sentiment_agent</span>
+      <span class="text-xs mono px-2 py-1 rounded bg-amber-900/40 border border-amber-700/50 text-amber-300">friction_agent</span>
+      <span class="text-xs mono px-2 py-1 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">creative_agent</span>
+    </div>
+
+    <!-- Status log -->
+    <div id="status-log" class="mb-6 space-y-1"></div>
+
+    <!-- Round columns -->
+    <div id="rounds-container" class="space-y-8"></div>
+
+    <!-- Final brief -->
+    <div id="final-brief" class="hidden mt-10 border border-slate-700 rounded-xl p-6 bg-slate-900/50">
+      <h3 class="text-sm font-semibold mono text-slate-300 mb-4 uppercase tracking-widest">Swarm Output</h3>
+      <div id="brief-content" class="space-y-4"></div>
+    </div>
+  </div>
+
+  <script>
+    const BACKEND = 'http://localhost:8000';
+
+    const AGENT_STYLE = {
+      user:            { bg: 'bg-indigo-950/60',  border: 'border-indigo-500/60',  badge: 'bg-indigo-800/60 text-indigo-200',  dot: 'bg-indigo-400' },
+      signal_agent:    { bg: 'bg-blue-900/30',    border: 'border-blue-700/40',    badge: 'bg-blue-800/60 text-blue-200',    dot: 'bg-blue-400' },
+      sentiment_agent: { bg: 'bg-violet-900/30', border: 'border-violet-700/40', badge: 'bg-violet-800/60 text-violet-200', dot: 'bg-violet-400' },
+      friction_agent:  { bg: 'bg-amber-900/30',  border: 'border-amber-700/40',  badge: 'bg-amber-800/60 text-amber-200',  dot: 'bg-amber-400' },
+      creative_agent:  { bg: 'bg-emerald-900/30',border: 'border-emerald-700/40',badge: 'bg-emerald-800/60 text-emerald-200',dot: 'bg-emerald-400' },
+    };
+
+    function agentStyle(agent) {
+      return AGENT_STYLE[agent] || { bg: 'bg-slate-800/50', border: 'border-slate-600', badge: 'bg-slate-700 text-slate-200', dot: 'bg-slate-400' };
+    }
+
+    async function launch() {
+      const prompt = document.getElementById('prompt').value.trim();
+      if (!prompt) return;
+
+      document.getElementById('launch-btn').disabled = true;
+      document.getElementById('launch-btn').textContent = 'Launching...';
+
+      const res = await fetch(`${BACKEND}/campaign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      const { campaign_id } = await res.json();
+
+      // Switch view
+      document.getElementById('launch-panel').classList.add('hidden');
+      document.getElementById('stream-panel').classList.remove('hidden');
+      document.getElementById('stream-title').textContent = prompt.length > 60 ? prompt.slice(0, 60) + '…' : prompt;
+      document.getElementById('stream-subtitle').textContent = `campaign ${campaign_id.slice(0, 8)}`;
+      document.getElementById('status-badge').classList.remove('hidden');
+      document.getElementById('status-badge').classList.add('flex');
+      setStatus('Connecting...');
+
+      streamCampaign(campaign_id);
+    }
+
+    function streamCampaign(campaign_id) {
+      const es = new EventSource(`${BACKEND}/stream/${campaign_id}`);
+
+      es.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+
+        if (msg.type === 'status') {
+          addStatus(msg.message, msg.phase);
+          setStatus(msg.message.slice(0, 60));
+        }
+
+        if (msg.type === 'agent_offline') {
+          addStatus(`${msg.agent} offline — swarm continues`, 'warn');
+        }
+
+        if (msg.type === 'signal_reinforced') {
+          updateCardSignal(msg.agent, msg.round, msg.signal);
+        }
+
+        if (msg.type === 'observation') {
+          addObservation(msg);
+        }
+
+        if (msg.type === 'complete') {
+          setStatus('Complete');
+          document.getElementById('pulse').classList.remove('pulse-dot');
+          document.getElementById('pulse').classList.add('bg-slate-500');
+          renderBrief(msg.brief);
+          es.close();
+        }
+
+        if (msg.type === 'error') {
+          addStatus(msg.message, 'error');
+          es.close();
+        }
+      };
+
+      es.onerror = () => {
+        addStatus('Connection lost.', 'error');
+        es.close();
+      };
+    }
+
+    function setStatus(text) {
+      document.getElementById('status-text').textContent = text;
+    }
+
+    let scrollTimer = null;
+    function scheduleScroll() {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      }, 120);
+    }
+
+    function addStatus(message, phase) {
+      const log = document.getElementById('status-log');
+      const color = phase === 'warn' ? 'text-amber-400' : phase === 'error' ? 'text-red-400' : 'text-slate-500';
+      const el = document.createElement('div');
+      el.className = `status-bar pl-3 py-0.5 text-xs mono ${color}`;
+      el.textContent = `» ${message}`;
+      log.appendChild(el);
+      scheduleScroll();
+    }
+
+    let cardsGrid = null;
+
+    function getCardsGrid() {
+      if (cardsGrid) return cardsGrid;
+      const container = document.getElementById('rounds-container');
+      const grid = document.createElement('div');
+      grid.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3';
+      container.appendChild(grid);
+      cardsGrid = grid;
+      return cardsGrid;
+    }
+
+    function signalGlow(signal) {
+      if (signal >= 2.0) return 'ring-2 ring-offset-0';
+      if (signal >= 1.5) return 'ring-1 ring-offset-0';
+      return '';
+    }
+
+    function signalOpacity(signal) {
+      if (signal >= 1.5) return '1';
+      if (signal >= 0.8) return '0.85';
+      return '0.55';
+    }
+
+    function updateCardSignal(agent, round, signal) {
+      const card = document.querySelector(`[data-card-key="${agent}|${round}"]`);
+      if (!card) return;
+      const sigSpan = card.querySelector('[data-sig-bar]');
+      if (sigSpan) {
+        sigSpan.textContent = `${signal >= 1.5 ? '▓▓▓' : signal >= 0.85 ? '▓▓░' : '▓░░'} ${signal.toFixed(2)}`;
+      }
+      card.style.opacity = signalOpacity(signal);
+      // Flash the border to make emergence visible
+      const s = agentStyle(agent);
+      card.classList.remove(...card.classList);
+      card.className = `agent-card ${s.bg} border ${s.border} rounded-xl p-4 ${signalGlow(signal)} ring-2 ring-white/20`;
+      setTimeout(() => {
+        card.className = `agent-card ${s.bg} border ${s.border} rounded-xl p-4 ${signalGlow(signal)}`;
+      }, 800);
+    }
+
+    function addObservation(msg) {
+      const grid = getCardsGrid();
+      const s = agentStyle(msg.agent);
+      const sig = msg.signal || 1.0;
+
+      const buildsHtml = (msg.builds_on || []).length
+        ? `<div class="mt-2 flex flex-wrap gap-1">${msg.builds_on.map(b =>
+            `<span class="builds-tag mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">${b}</span>`
+          ).join('')}</div>`
+        : '';
+
+      const sigBar = `<span data-sig-bar class="mono text-xs text-slate-600" title="pheromone signal">${sig >= 1.5 ? '▓▓▓' : sig >= 0.85 ? '▓▓░' : '▓░░'} ${sig.toFixed(2)}</span>`;
+
+      const card = document.createElement('div');
+      card.dataset.cardKey = `${msg.agent}|${msg.round}`;
+      card.className = `agent-card ${s.bg} border ${s.border} rounded-xl p-4 ${signalGlow(sig)}`;
+      card.style.opacity = signalOpacity(sig);
+      card.style.transition = 'opacity 0.4s ease, box-shadow 0.4s ease';
+      const isUser = msg.agent === 'user';
+      card.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full ${s.dot} flex-shrink-0"></span>
+            <span class="text-xs mono font-medium ${s.badge.split(' ')[1]}">${isUser ? '✎ prompt' : msg.agent}</span>
+            ${msg.round === 2 ? `<span class="text-xs text-slate-600 mono">↩ reacting</span>` : ''}
+          </div>
+          ${isUser ? '' : sigBar}
+        </div>
+        <p class="text-sm ${isUser ? 'text-indigo-200 font-medium' : 'text-slate-200'} leading-relaxed">${msg.observation}</p>
+        ${buildsHtml}
+      `;
+      grid.appendChild(card);
+      scheduleScroll();
+    }
+
+    function renderBrief(brief) {
+      const el = document.getElementById('final-brief');
+      const content = document.getElementById('brief-content');
+      el.classList.remove('hidden');
+
+      // Emergent blackboard — highest-signal observation per agent
+      const top = brief.top_by_agent || {};
+      const agentOrder = ['signal_agent', 'sentiment_agent', 'friction_agent', 'creative_agent'];
+      const labels = {
+        signal_agent:    'Signal',
+        sentiment_agent: 'Sentiment',
+        friction_agent:  'Friction',
+        creative_agent:  'Creative',
+      };
+      const extras = {
+        signal_agent:    o => o.momentum ? `<p class="text-xs text-slate-400 mt-2">Momentum: ${o.momentum}</p>` : '',
+        sentiment_agent: o => o.dominant_emotion ? `<p class="text-xs text-slate-400 mt-2">Dominant emotion: ${o.dominant_emotion}</p>` : '',
+        friction_agent:  o => o.primary_barrier ? `<p class="text-xs text-slate-400 mt-2">Primary barrier: ${o.primary_barrier}</p>` : '',
+        creative_agent:  o => o.headline_idea ? `<p class="text-xs text-slate-400 mt-2 italic">"${o.headline_idea}"</p>` : '',
+      };
+
+      agentOrder.forEach(ag => {
+        const o = top[ag];
+        if (!o) return;
+        const s = agentStyle(ag);
+        const sig = o.signal || 1.0;
+        const sigBar = `<span class="mono text-xs text-slate-600">${sig >= 1.5 ? '▓▓▓' : sig >= 0.85 ? '▓▓░' : '▓░░'} ${sig.toFixed(2)}</span>`;
+        content.innerHTML += `
+          <div class="${s.bg} border ${s.border} rounded-xl p-5">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs mono uppercase tracking-widest" style="color:inherit">${labels[ag]}</div>
+              ${sigBar}
+            </div>
+            <p class="text-sm text-slate-200 leading-relaxed">${o.observation || ''}</p>
+            ${extras[ag](o)}
+          </div>
+        `;
+      });
+
+      // Meta
+      const uSig = brief.user_signal || 1.0;
+      const uBar = uSig >= 1.5 ? '▓▓▓' : uSig >= 0.85 ? '▓▓░' : '▓░░';
+      content.innerHTML += `
+        <div class="grid grid-cols-3 gap-3 text-center">
+          <div class="bg-slate-800/60 rounded-lg p-3">
+            <div class="text-lg font-semibold">${brief.agents_online.length}</div>
+            <div class="text-xs text-slate-500 mono">agents online</div>
+          </div>
+          <div class="bg-slate-800/60 rounded-lg p-3">
+            <div class="text-lg font-semibold">${brief.observations.length}</div>
+            <div class="text-xs text-slate-500 mono">observations</div>
+          </div>
+          <div class="bg-indigo-900/30 border border-indigo-700/40 rounded-lg p-3">
+            <div class="text-lg font-semibold mono text-indigo-300">${uBar} ${uSig.toFixed(2)}</div>
+            <div class="text-xs text-slate-500 mono">prompt resonance</div>
+          </div>
+        </div>
+      `;
+
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function reset() {
+      document.getElementById('launch-panel').classList.remove('hidden');
+      document.getElementById('stream-panel').classList.add('hidden');
+      document.getElementById('status-badge').classList.add('hidden');
+      document.getElementById('status-log').innerHTML = '';
+      document.getElementById('rounds-container').innerHTML = '';
+      document.getElementById('brief-content').innerHTML = '';
+      document.getElementById('final-brief').classList.add('hidden');
+      document.getElementById('launch-btn').disabled = false;
+      document.getElementById('launch-btn').textContent = 'Launch Swarm';
+      document.getElementById('prompt').value = '';
+      cardsGrid = null;
+    }
+  </script>
+</body>
+</html>

@@ -1,12 +1,13 @@
 import json
 import os
+from typing import Optional
 import redis.asyncio as aioredis
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 TTL = 3600  # 1 hour
 
-_redis: aioredis.Redis | None = None
+_redis: Optional[aioredis.Redis] = None
 
 
 async def get_redis() -> aioredis.Redis:
@@ -26,7 +27,6 @@ async def init_state(campaign_id: str, brief: dict) -> dict:
         "brief": brief,
         "round": 0,
         "observations": [],
-        "live_data": {},
         "status": "initializing",
         "brief_output": None,
     }
@@ -35,7 +35,7 @@ async def init_state(campaign_id: str, brief: dict) -> dict:
     return state
 
 
-async def get_state(campaign_id: str) -> dict | None:
+async def get_state(campaign_id: str) -> Optional[dict]:
     r = await get_redis()
     data = await r.get(f"campaign:{campaign_id}")
     return json.loads(data) if data else None

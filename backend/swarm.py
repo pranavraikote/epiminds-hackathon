@@ -1,15 +1,119 @@
 import asyncio
-import json
 from typing import AsyncGenerator
 
 from agents import all_agents
-from agents.base import call_gemini
-from data.fetcher import fetch_live_data
 from state import get_state, update_state
 
-MAX_ROUNDS = 3
-CONVERGENCE_THRESHOLD = 0.75
+REACTION_TIMEOUT = 30   # seconds an agent waits for a peer signal before going idle
+SAFETY_TIMEOUT   = 150  # total wall-clock budget for the whole swarm
 
+
+# ---------------------------------------------------------------------------
+# In-process fanout pub/sub — zero polling
+# ---------------------------------------------------------------------------
+
+class _Bus:
+    def __init__(self):
+        self._inboxes: list[asyncio.Queue] = []
+
+    def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue()
+        self._inboxes.append(q)
+        return q
+
+    async def publish(self, event: dict) -> None:
+        for q in self._inboxes:
+            await q.put(event)
+
+
+# ---------------------------------------------------------------------------
+# Atomic state write + stigmergy reinforcement + bus notification
+# ---------------------------------------------------------------------------
+
+async def _commit(
+    result: dict, campaign_id: str, bus: _Bus, lock: asyncio.Lock, sse_q: asyncio.Queue
+) -> None:
+    reinforced = []
+    async with lock:
+        state = await get_state(campaign_id)
+        cited = set(result.get("builds_on", []))
+        for prior in state["observations"]:
+            tag = f"{prior['agent']} | Round {prior['round']}"
+            if tag in cited:
+                prior["signal"] = prior.get("signal", 1.0) + 0.5
+                reinforced.append({"agent": prior["agent"], "round": prior["round"], "signal": prior["signal"]})
+        state["observations"].append(result)
+        await update_state(campaign_id, state)
+    # Signal reinforcement events — the visible moment of emergence
+    for r in reinforced:
+        await sse_q.put({"type": "signal_reinforced", "agent": r["agent"], "round": r["round"], "signal": r["signal"]})
+    # Publish outside the lock so other agents can react immediately
+    await bus.publish({"type": "new_observation", "from_agent": result["agent"]})
+
+
+def _obs_event(result: dict) -> dict:
+    return {
+        "type": "observation",
+        "phase": "swarm",
+        "agent": result["agent"],
+        "round": result["round"],
+        "observation": result.get("observation", ""),
+        "builds_on": result.get("builds_on", []),
+        "signal": result.get("signal", 1.0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Data agent: runs immediately, then reacts once when a peer posts
+# ---------------------------------------------------------------------------
+
+async def _data_agent(
+    agent, campaign_id: str, bus: _Bus, sse_q: asyncio.Queue, lock: asyncio.Lock
+) -> None:
+    # Subscribe before first run so we don't miss peer events
+    inbox = bus.subscribe()
+
+    # Pass 1 — read own data source
+    state = await get_state(campaign_id)
+    result = await agent.run(state)
+    result.update(round=1, signal=1.0)
+    await _commit(result, campaign_id, bus, lock, sse_q)
+
+    if result["status"] == "failed":
+        err = result.get("error", "unknown error")
+        await sse_q.put({"type": "agent_offline", "phase": "swarm", "agent": agent.name,
+                         "message": f"{agent.name} offline: {err[:120]}"})
+        return
+
+    await sse_q.put(_obs_event(result))
+    if result.get("done"):
+        return
+
+    # Pass 2 — wait for a signal from any other agent, then react once
+    while True:
+        try:
+            event = await asyncio.wait_for(inbox.get(), timeout=REACTION_TIMEOUT)
+        except asyncio.TimeoutError:
+            return  # no peer activity — go idle
+        if event["type"] == "new_observation" and event["from_agent"] != agent.name:
+            break   # a peer wrote something; time to react
+
+    state = await get_state(campaign_id)
+    result = await agent.run(state)
+    result.update(round=2, signal=1.0)
+    await _commit(result, campaign_id, bus, lock, sse_q)
+
+    if result["status"] == "failed":
+        err2 = result.get("error", "unknown error")
+        await sse_q.put({"type": "agent_offline", "phase": "swarm", "agent": agent.name,
+                         "message": f"{agent.name} offline: {err2[:120]}"})
+    else:
+        await sse_q.put(_obs_event(result))
+
+
+# ---------------------------------------------------------------------------
+# Swarm runner
+# ---------------------------------------------------------------------------
 
 async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
     state = await get_state(campaign_id)
@@ -19,150 +123,86 @@ async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
 
     brief = state["brief"]
 
-    # Phase 1: fetch live data
-    yield {"type": "status", "phase": "data", "message": "Fetching live market data..."}
-
-    live_data = await fetch_live_data(
-        product=brief["product"],
-        competitor=brief.get("competitor", ""),
-    )
-    state["live_data"] = live_data
+    # User prompt is the first write to the blackboard — agents react to it
+    user_obs = {
+        "agent": "user",
+        "round": 0,
+        "signal": 1.0,
+        "status": "success",
+        "observation": brief["prompt"],
+        "builds_on": [],
+        "done": False,
+    }
+    state["observations"] = [user_obs]
     state["status"] = "running"
+    state["round"] = 1
     await update_state(campaign_id, state)
 
-    sources = {k: v.get("_source", "unknown") for k, v in live_data.items()}
-    yield {"type": "status", "phase": "data", "message": f"Data collected. Sources: {sources}"}
+    yield {"type": "observation", "phase": "user", "agent": "user", "round": 0,
+           "observation": brief["prompt"], "builds_on": [], "signal": 1.0}
+    yield {"type": "status", "phase": "swarm", "message": "Swarm online — agents foraging independently..."}
 
-    # Phase 2: multi-round swarm
-    for round_num in range(1, MAX_ROUNDS + 1):
-        state["round"] = round_num
-        await update_state(campaign_id, state)
+    bus   = _Bus()
+    sse_q: asyncio.Queue = asyncio.Queue()
+    lock  = asyncio.Lock()
 
-        yield {
-            "type": "status",
-            "phase": "swarm",
-            "message": f"Round {round_num} — all agents analyzing in parallel...",
-        }
+    tasks = [
+        asyncio.create_task(_data_agent(a, campaign_id, bus, sse_q, lock))
+        for a in all_agents
+    ]
 
-        # All agents run concurrently — true flat swarm
-        tasks = [agent.run(state) for agent in all_agents]
-        round_results = await asyncio.gather(*tasks)
+    all_done = asyncio.Event()
 
-        failed_agents = []
-        for result in round_results:
-            state["observations"].append(result)
-            await update_state(campaign_id, state)
+    async def _watch():
+        await asyncio.gather(*tasks, return_exceptions=True)
+        all_done.set()
 
-            if result["status"] == "failed":
-                failed_agents.append(result["agent"])
-                yield {
-                    "type": "agent_offline",
-                    "phase": "swarm",
-                    "agent": result["agent"],
-                    "message": f"{result['agent']} is offline. Swarm continues with remaining agents.",
-                }
-            else:
-                yield {
-                    "type": "observation",
-                    "phase": "swarm",
-                    "agent": result["agent"],
-                    "round": round_num,
-                    "observation": result.get("observation", ""),
-                    "proposal": result.get("proposal", ""),
-                    "builds_on": result.get("builds_on", []),
-                    "confidence": result.get("confidence", 0),
-                }
+    watcher = asyncio.create_task(_watch())
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + SAFETY_TIMEOUT
 
-            await asyncio.sleep(0.2)  # stagger for UI readability
-
-        if failed_agents:
-            yield {
-                "type": "status",
-                "phase": "swarm",
-                "message": f"Note: {len(failed_agents)} agent(s) offline ({', '.join(failed_agents)}). Proceeding with available signals.",
-            }
-
-        # Check convergence
-        successful = [r for r in round_results if r["status"] == "success"]
-        if successful:
-            avg_confidence = sum(r.get("confidence", 0) for r in successful) / len(successful)
-            yield {
-                "type": "status",
-                "phase": "swarm",
-                "message": f"Round {round_num} complete. Average confidence: {avg_confidence:.2f}",
-            }
-            if avg_confidence >= CONVERGENCE_THRESHOLD:
-                yield {
-                    "type": "status",
-                    "phase": "swarm",
-                    "message": f"Consensus reached at round {round_num}. Synthesizing campaign brief...",
-                }
+    try:
+        while not all_done.is_set():
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                yield {"type": "status", "phase": "swarm", "message": "Safety timeout — wrapping up."}
+                for t in tasks:
+                    t.cancel()
                 break
+            try:
+                event = await asyncio.wait_for(sse_q.get(), timeout=min(0.3, remaining))
+                yield event
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        watcher.cancel()
 
-    # Phase 3: synthesize final brief
-    yield {"type": "status", "phase": "synthesis", "message": "Generating final campaign brief..."}
+    while not sse_q.empty():
+        yield sse_q.get_nowait()
 
-    brief_output = await _synthesize(state)
+    # Emergent output — blackboard sorted by pheromone signal, top per agent
+    state = await get_state(campaign_id)
+    successful_obs = [o for o in state["observations"] if o["status"] == "success" and o["agent"] != "user"]
+
+    top_by_agent: dict = {}
+    for o in sorted(successful_obs, key=lambda x: x.get("signal", 1.0), reverse=True):
+        ag = o["agent"]
+        if ag not in top_by_agent:
+            top_by_agent[ag] = o
+
+    # User observation signal shows which framing resonated with the swarm
+    user_signal = next((o["signal"] for o in state["observations"] if o["agent"] == "user"), 1.0)
+
+    brief_output = {
+        "observations": successful_obs,
+        "top_by_agent": top_by_agent,
+        "user_signal": user_signal,
+        "agents_online":  list(top_by_agent.keys()),
+        "agents_offline": list({o["agent"] for o in state["observations"] if o["status"] == "failed"}),
+    }
+
     state["brief_output"] = brief_output
     state["status"] = "complete"
     await update_state(campaign_id, state)
 
-    yield {"type": "complete", "phase": "synthesis", "brief": brief_output}
-
-
-async def _synthesize(state: dict) -> dict:
-    observations_text = json.dumps(state["observations"], indent=2)
-    brief = state["brief"]
-    total_obs = len(state["observations"])
-    rounds = state["round"]
-
-    prompt = f"""You are a senior strategist reviewing a swarm intelligence report.
-Your team of specialists completed {rounds} rounds of analysis with {total_obs} observations.
-Distill their findings into a campaign intelligence brief.
-
-BRAND TARGET:
-{json.dumps(brief, indent=2)}
-
-SWARM OBSERVATIONS:
-{observations_text}
-
-Integrate insights from ALL agents, especially convergences where multiple agents reached the same conclusion independently.
-Note any signal gaps where an agent was offline.
-
-Return JSON only:
-{{
-  "executive_summary": "2-3 sentences on what the swarm collectively found",
-  "convergent_insights": ["insight backed by 2+ agents independently"],
-  "campaign_angle": "The single strongest positioning angle, grounded in convergent signals",
-  "target_audience": {{
-    "primary_segment": "",
-    "pain_points": [],
-    "language_to_use": []
-  }},
-  "positioning": {{
-    "value_proposition": "",
-    "tone": "",
-    "what_to_avoid": []
-  }},
-  "channel_recommendations": [
-    {{
-      "channel": "",
-      "rationale": "",
-      "message_angle": ""
-    }}
-  ],
-  "copy_starters": [
-    {{
-      "headline": "",
-      "hook": "",
-      "cta": ""
-    }}
-  ],
-  "signal_conflicts": ["where agents disagreed and what it means"],
-  "data_gaps": ["signals that were unavailable"]
-}}"""
-
-    try:
-        return await call_gemini(prompt)
-    except Exception as e:
-        return {"error": str(e), "raw_observations": state["observations"]}
+    yield {"type": "complete", "phase": "swarm", "brief": brief_output}

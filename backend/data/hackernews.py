@@ -9,7 +9,7 @@ def fetch_hn_mentions(product: str, limit: int = 30) -> dict:
         since = int(time.time()) - (7 * 24 * 3600)  # last 7 days
         params = {
             "query": product,
-            "tags": "story,comment",
+            "tags": "(story,comment)",
             "numericFilters": f"created_at_i>{since}",
             "hitsPerPage": limit,
         }

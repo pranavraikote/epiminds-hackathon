@@ -11,30 +11,36 @@ class CommunityAgent(BaseAgent):
         brief = state["brief"]
         reddit = state.get("live_data", {}).get("reddit", {})
         prior = self._format_prior_observations(state)
+        reddit_empty = reddit.get("_source") == "error" or not reddit.get("top_posts")
 
-        return f"""You are a Community Intelligence Specialist. You read Reddit to understand what real users think.
+        if reddit_empty:
+            empty_note = "\nNOTE: Reddit data is unavailable. Set done=true — you have no data source to contribute from.\n"
+        else:
+            empty_note = ""
 
-BRAND TARGET:
-{json.dumps(brief, indent=2)}
+        return f"""You are a Community Intelligence Specialist reading Reddit signals for a campaign team.
 
-LIVE REDDIT DATA:
-{json.dumps(reddit, indent=2)}
+TARGET: {json.dumps(brief)}
 
-PRIOR TEAM OBSERVATIONS (build on these, don't repeat):
+REDDIT DATA:
+{json.dumps(reddit, indent=2)}{empty_note}
+
+PRIOR TEAM OBSERVATIONS:
 {prior}
 
-Analyze what the community is saying about this product and its competitors.
-Look for: recurring complaints, switching triggers, things people love, language patterns.
-If other agents have posted observations, explicitly react — agree, challenge, or extend.
+Extract what real users say: complaints, switching triggers, love, exact language patterns.
+React explicitly to prior observations — agree, challenge, or extend with new evidence.
+If Reddit data is unavailable, set done=true immediately — do not speculate without data.
+Set "done" to true once you have no new insight beyond what's already captured.
 
 Return JSON only:
 {{
   "agent": "community_agent",
-  "observation": "What Reddit is saying right now",
-  "key_themes": ["theme1", "theme2"],
+  "observation": "What Reddit reveals right now — be specific, cite themes",
+  "key_themes": ["theme1"],
   "switching_signals": ["signal1"],
-  "user_language": ["exact phrases users use"],
-  "campaign_implication": "What this means for marketing",
-  "builds_on": [],
-  "confidence": 0.0
+  "user_language": ["exact phrase"],
+  "campaign_implication": "Specific marketing implication",
+  "builds_on": ["agent | Round N"],
+  "done": false
 }}"""

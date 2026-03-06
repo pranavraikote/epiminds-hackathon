@@ -11,30 +11,36 @@ class ReviewAgent(BaseAgent):
         brief = state["brief"]
         ph_data = state.get("live_data", {}).get("producthunt", {})
         prior = self._format_prior_observations(state)
+        ph_empty = not ph_data.get("posts")
 
-        return f"""You are a Product Launch Analyst. You read Product Hunt data to understand how early adopters and the maker community receive a product — votes, comments, launch timing, and topic resonance.
+        if ph_empty:
+            empty_note = "\nNOTE: Product Hunt data is unavailable. Set done=true — you have no data source to contribute from.\n"
+        else:
+            empty_note = ""
 
-BRAND TARGET:
-{json.dumps(brief, indent=2)}
+        return f"""You are a Product Launch Analyst reading Product Hunt signals for a campaign team.
 
-LIVE PRODUCT HUNT DATA:
-{json.dumps(ph_data, indent=2)}
+TARGET: {json.dumps(brief)}
 
-PRIOR TEAM OBSERVATIONS (build on these, don't repeat):
+PRODUCT HUNT DATA:
+{json.dumps(ph_data, indent=2)}{empty_note}
+
+PRIOR TEAM OBSERVATIONS:
 {prior}
 
-Analyze Product Hunt reception. Look for: vote momentum, topic categories that resonate, tagline patterns,
-how this product is positioned vs how users actually talk about it.
-If other agents have posted observations, react — especially if PH reception aligns or conflicts with Reddit/HN findings.
+Read early adopter reception: vote momentum, resonant topics, how the product is pitched vs how users actually talk about it.
+React to prior observations — especially where PH reception aligns or conflicts with Reddit/HN findings.
+If Product Hunt data is empty or unavailable, set done=true immediately — do not speculate without a data source.
+Set "done" to true once you have extracted all insights your data can support.
 
 Return JSON only:
 {{
   "agent": "review_agent",
-  "observation": "What Product Hunt reception reveals about market fit and positioning",
-  "reception_signal": "strong / moderate / weak with context",
-  "resonant_topics": ["topics that got traction"],
-  "positioning_gap": "Difference between how the product is pitched vs how community responds",
-  "campaign_implication": "What early adopter signals mean for broader campaign messaging",
-  "builds_on": [],
-  "confidence": 0.0
+  "observation": "What Product Hunt reception reveals about market fit — be specific",
+  "reception_signal": "strong / moderate / weak — with reasons",
+  "resonant_topics": ["topic1"],
+  "positioning_gap": "How the product is pitched vs how users actually respond",
+  "campaign_implication": "What early adopter signals mean for broader messaging",
+  "builds_on": ["agent | Round N"],
+  "done": false
 }}"""

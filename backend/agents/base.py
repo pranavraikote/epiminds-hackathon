@@ -20,8 +20,8 @@ async def call_gemini(prompt: str) -> dict:
         prompt,
         generation_config={
             "response_mime_type": "application/json",
-            "temperature": 0.7,
-            "max_output_tokens": 1024,
+            "temperature": 1,
+            "max_output_tokens": 2048,
         },
     )
     return json.loads(response.text)
@@ -33,8 +33,10 @@ class BaseAgent:
     focus: str = ""
 
     async def run(self, state: dict) -> dict:
-        prompt = self._build_prompt(state)
+        brief = state["brief"]
         try:
+            web_context = await self._fetch_context(brief)
+            prompt = self._build_prompt(state, web_context)
             result = await call_gemini(prompt)
             result["agent"] = self.name
             result["round"] = state["round"]
@@ -46,25 +48,49 @@ class BaseAgent:
                 "status": "failed",
                 "error": str(e),
                 "observation": f"{self.name} is offline.",
-                "proposal": None,
-                "confidence": 0.0,
                 "builds_on": [],
+                "done": False,
             }
         return result
 
-    def _build_prompt(self, state: dict) -> str:
+    def _search_queries(self, brief: dict) -> list[str]:
+        """Override in each agent to return tailored search queries."""
+        return []
+
+    async def _fetch_context(self, brief: dict) -> list[dict]:
+        from data.websearch import search_raw
+        queries = self._search_queries(brief)
+        if not queries:
+            return []
+        results = await asyncio.gather(*[asyncio.to_thread(search_raw, q) for q in queries])
+        combined = [item for sublist in results for item in sublist]
+        return combined[:10]
+
+    def _format_web_context(self, results: list[dict]) -> str:
+        if not results:
+            return "No live data available."
+        return "\n".join(f"- {r['title']}: {r['snippet']}" for r in results)
+
+    def _format_brief(self, brief: dict) -> str:
+        prompt = brief.get("prompt", brief.get("product", ""))
+        competitor = brief.get("competitor", "")
+        suffix = f" (vs {competitor})" if competitor else ""
+        return f"{prompt}{suffix}"
+
+    def _build_prompt(self, state: dict, web_context: list[dict]) -> str:
         raise NotImplementedError
 
     def _format_prior_observations(self, state: dict) -> str:
         obs = state.get("observations", [])
         if not obs:
-            return "None yet — you are in Round 1."
+            return "None yet."
+        sorted_obs = sorted(obs, key=lambda o: o.get("signal", 1.0), reverse=True)[:12]
         lines = []
-        for o in obs:
+        for o in sorted_obs:
+            sig = o.get("signal", 1.0)
+            strength = "▓▓▓" if sig >= 1.5 else "▓▓░" if sig >= 1.0 else "▓░░"
             lines.append(
-                f"[{o['agent']} | Round {o['round']}]\n"
-                f"Observation: {o.get('observation', '')}\n"
-                f"Proposal: {o.get('proposal', '')}\n"
-                f"Confidence: {o.get('confidence', 0)}\n"
+                f"[{o['agent']} | Round {o['round']} | signal={sig:.2f} {strength}]\n"
+                f"{o.get('observation', '')}"
             )
-        return "\n".join(lines)
+        return "\n\n".join(lines)
