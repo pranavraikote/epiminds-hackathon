@@ -1,114 +1,154 @@
 import asyncio
+import threading
 from typing import AsyncGenerator
 
-from agents import all_agents
-from state import get_state, update_state
+from agents import all_agents, mutator_agent, audience_sniper_agent
+from state import get_state, update_state, add_scent, decay_and_reinforce
 
-REACTION_TIMEOUT = 30   # seconds an agent waits for a peer signal before going idle
-SAFETY_TIMEOUT   = 150  # total wall-clock budget for the whole swarm
+REACTION_TIMEOUT = 60   # seconds an agent waits for a peer scent before going idle
+SAFETY_TIMEOUT   = 360  # total wall-clock budget for the whole swarm
 
 
 # ---------------------------------------------------------------------------
-# In-process fanout pub/sub — zero polling
+# Firestore-backed pub/sub — real-time, zero polling
+# on_snapshot fires on background thread → call_soon_threadsafe into asyncio queues
 # ---------------------------------------------------------------------------
 
-class _Bus:
-    def __init__(self):
+class _FirestoreBus:
+    def __init__(self, campaign_id: str, loop: asyncio.AbstractEventLoop):
+        self._campaign_id = campaign_id
+        self._loop = loop
         self._inboxes: list[asyncio.Queue] = []
+        self._watch = None
+        self._ready = threading.Event()
 
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
         self._inboxes.append(q)
         return q
 
-    async def publish(self, event: dict) -> None:
-        for q in self._inboxes:
-            await q.put(event)
+    def start(self) -> None:
+        """Blocks until initial Firestore snapshot received. Call via asyncio.to_thread."""
+        import os
+        from google.cloud import firestore
+        db = firestore.Client(project=os.getenv("GCP_PROJECT_ID"))
+        initial_done = [False]
+        seen_ids: set = set()
+
+        def on_snapshot(col_snapshot, changes, read_time):
+            if not initial_done[0]:
+                for change in changes:
+                    seen_ids.add(change.document.id)
+                initial_done[0] = True
+                self._ready.set()
+                return
+            for change in changes:
+                if change.type.name == "ADDED" and change.document.id not in seen_ids:
+                    seen_ids.add(change.document.id)
+                    doc = change.document.to_dict()
+                    event = {
+                        "type": "new_scent",
+                        "from_agent": doc.get("agent", ""),
+                        "scent_type": doc.get("scent_type", ""),
+                    }
+                    for q in self._inboxes:
+                        self._loop.call_soon_threadsafe(q.put_nowait, event)
+
+        scents_ref = (
+            db.collection("campaigns")
+            .document(self._campaign_id)
+            .collection("scents")
+        )
+        self._watch = scents_ref.on_snapshot(on_snapshot)
+        self._ready.wait(timeout=10.0)
+
+    def stop(self) -> None:
+        if self._watch:
+            self._watch.unsubscribe()
 
 
 # ---------------------------------------------------------------------------
-# Atomic state write + stigmergy reinforcement + bus notification
+# Atomic scent commit: decay → reinforce cited → write new scent
+# Bus notification is handled automatically by Firestore on_snapshot
 # ---------------------------------------------------------------------------
 
 async def _commit(
-    result: dict, campaign_id: str, bus: _Bus, lock: asyncio.Lock, sse_q: asyncio.Queue
+    result: dict, campaign_id: str, lock: asyncio.Lock, sse_q: asyncio.Queue
 ) -> None:
-    reinforced = []
     async with lock:
-        state = await get_state(campaign_id)
         cited = set(result.get("builds_on", []))
-        for prior in state["observations"]:
-            tag = f"{prior['agent']} | Round {prior['round']}"
-            if tag in cited:
-                prior["signal"] = prior.get("signal", 1.0) + 0.5
-                reinforced.append({"agent": prior["agent"], "round": prior["round"], "signal": prior["signal"]})
-        state["observations"].append(result)
-        await update_state(campaign_id, state)
-    # Signal reinforcement events — the visible moment of emergence
+        reinforced = await decay_and_reinforce(campaign_id, cited)
+        await add_scent(campaign_id, result)
     for r in reinforced:
-        await sse_q.put({"type": "signal_reinforced", "agent": r["agent"], "round": r["round"], "signal": r["signal"]})
-    # Publish outside the lock so other agents can react immediately
-    await bus.publish({"type": "new_observation", "from_agent": result["agent"]})
+        await sse_q.put({
+            "type": "scent_reinforced",
+            "agent": r["agent"],
+            "round": r["round"],
+            "intensity": r["intensity"],
+        })
 
 
-def _obs_event(result: dict) -> dict:
+def _scent_event(result: dict) -> dict:
     return {
         "type": "observation",
         "phase": "swarm",
         "agent": result["agent"],
-        "round": result["round"],
+        "round": result.get("round", 1),
         "observation": result.get("observation", ""),
+        "scent_type": result.get("scent_type", ""),
+        "intensity": result.get("intensity", 0.7),
         "builds_on": result.get("builds_on", []),
-        "signal": result.get("signal", 1.0),
+        "payload": result.get("payload", {}),
     }
 
 
 # ---------------------------------------------------------------------------
-# Data agent: runs immediately, then reacts once when a peer posts
+# Data agent: forages independently (Pass 1), reacts to peer scent (Pass 2)
 # ---------------------------------------------------------------------------
 
+MAX_AGENT_ROUNDS = 5  # maximum stigmergic reactions per agent per swarm run
+
+
 async def _data_agent(
-    agent, campaign_id: str, bus: _Bus, sse_q: asyncio.Queue, lock: asyncio.Lock
+    agent, campaign_id: str, bus: _FirestoreBus, sse_q: asyncio.Queue, lock: asyncio.Lock,
+    round_offset: int = 0,
 ) -> None:
-    # Subscribe before first run so we don't miss peer events
     inbox = bus.subscribe()
+    local_round = 0  # this agent's reaction counter within this run
 
-    # Pass 1 — read own data source
-    state = await get_state(campaign_id)
-    result = await agent.run(state)
-    result.update(round=1, signal=1.0)
-    await _commit(result, campaign_id, bus, lock, sse_q)
+    while local_round < MAX_AGENT_ROUNDS:
+        # First pass runs immediately; subsequent passes wait for a new peer scent
+        if local_round > 0:
+            # Drain stale events already in inbox, then wait for a fresh peer signal
+            while not inbox.empty():
+                inbox.get_nowait()
+            try:
+                while True:
+                    event = await asyncio.wait_for(inbox.get(), timeout=REACTION_TIMEOUT)
+                    if event["type"] == "new_scent" and event["from_agent"] != agent.name:
+                        break
+            except asyncio.TimeoutError:
+                return  # no new peer stimulus — this agent is idle
 
-    if result["status"] == "failed":
-        err = result.get("error", "unknown error")
-        await sse_q.put({"type": "agent_offline", "phase": "swarm", "agent": agent.name,
-                         "message": f"{agent.name} offline: {err[:120]}"})
-        return
+        state = await get_state(campaign_id)
+        result = await agent.run(state)
+        result.update(round=local_round + 1 + round_offset)
+        result.setdefault("intensity", 0.7)
+        await _commit(result, campaign_id, lock, sse_q)
 
-    await sse_q.put(_obs_event(result))
-    if result.get("done"):
-        return
+        if result["status"] == "failed":
+            err = result.get("error", "unknown error")
+            await sse_q.put({
+                "type": "agent_offline", "phase": "swarm", "agent": agent.name,
+                "message": f"{agent.name} offline: {err[:120]}",
+            })
+            return
 
-    # Pass 2 — wait for a signal from any other agent, then react once
-    while True:
-        try:
-            event = await asyncio.wait_for(inbox.get(), timeout=REACTION_TIMEOUT)
-        except asyncio.TimeoutError:
-            return  # no peer activity — go idle
-        if event["type"] == "new_observation" and event["from_agent"] != agent.name:
-            break   # a peer wrote something; time to react
+        await sse_q.put(_scent_event(result))
+        local_round += 1
 
-    state = await get_state(campaign_id)
-    result = await agent.run(state)
-    result.update(round=2, signal=1.0)
-    await _commit(result, campaign_id, bus, lock, sse_q)
-
-    if result["status"] == "failed":
-        err2 = result.get("error", "unknown error")
-        await sse_q.put({"type": "agent_offline", "phase": "swarm", "agent": agent.name,
-                         "message": f"{agent.name} offline: {err2[:120]}"})
-    else:
-        await sse_q.put(_obs_event(result))
+        if result.get("done"):
+            return  # agent self-terminated — no further reactions needed
 
 
 # ---------------------------------------------------------------------------
@@ -123,31 +163,46 @@ async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
 
     brief = state["brief"]
 
-    # User prompt is the first write to the blackboard — agents react to it
-    user_obs = {
+    # Compute round offset so watch-mode runs don't overwrite prior scents
+    existing_rounds = [
+        o.get("round", 0) for o in state.get("observations", [])
+        if o.get("agent") != "user"
+    ]
+    round_offset = max(existing_rounds, default=0)
+
+    # User prompt is the first scent — the pheromone trail begins here
+    user_scent = {
         "agent": "user",
         "round": 0,
-        "signal": 1.0,
+        "intensity": 0.7,
+        "scent_type": "Prompt",
         "status": "success",
         "observation": brief["prompt"],
+        "payload": {"prompt": brief["prompt"]},
         "builds_on": [],
         "done": False,
     }
-    state["observations"] = [user_obs]
+    await add_scent(campaign_id, user_scent)
     state["status"] = "running"
     state["round"] = 1
     await update_state(campaign_id, state)
 
-    yield {"type": "observation", "phase": "user", "agent": "user", "round": 0,
-           "observation": brief["prompt"], "builds_on": [], "signal": 1.0}
-    yield {"type": "status", "phase": "swarm", "message": "Swarm online — agents foraging independently..."}
+    yield {
+        "type": "observation", "phase": "user", "agent": "user", "round": 0,
+        "observation": brief["prompt"], "scent_type": "Prompt",
+        "intensity": 0.7, "builds_on": [], "payload": {},
+    }
+    yield {"type": "status", "phase": "swarm", "message": "Swarm online — Scavengers foraging the field..."}
 
-    bus   = _Bus()
+    loop = asyncio.get_event_loop()
+    bus = _FirestoreBus(campaign_id, loop)
+    await asyncio.to_thread(bus.start)  # Block until initial Firestore snapshot received
+
     sse_q: asyncio.Queue = asyncio.Queue()
-    lock  = asyncio.Lock()
+    lock = asyncio.Lock()
 
     tasks = [
-        asyncio.create_task(_data_agent(a, campaign_id, bus, sse_q, lock))
+        asyncio.create_task(_data_agent(a, campaign_id, bus, sse_q, lock, round_offset))
         for a in all_agents
     ]
 
@@ -158,14 +213,13 @@ async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
         all_done.set()
 
     watcher = asyncio.create_task(_watch())
-    loop = asyncio.get_event_loop()
     deadline = loop.time() + SAFETY_TIMEOUT
 
     try:
         while not all_done.is_set():
             remaining = deadline - loop.time()
             if remaining <= 0:
-                yield {"type": "status", "phase": "swarm", "message": "Safety timeout — wrapping up."}
+                yield {"type": "status", "phase": "swarm", "message": "Safety timeout — moving to mutation phase."}
                 for t in tasks:
                     t.cancel()
                 break
@@ -180,29 +234,73 @@ async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
     while not sse_q.empty():
         yield sse_q.get_nowait()
 
-    # Emergent output — blackboard sorted by pheromone signal, top per agent
-    state = await get_state(campaign_id)
-    successful_obs = [o for o in state["observations"] if o["status"] == "success" and o["agent"] != "user"]
+    # Phase 3: Mutation — Mutator evolves the top Strategy scent
+    yield {"type": "status", "phase": "swarm", "message": "Mutator entering the field — evolving top strategy..."}
+    mutator_state = await get_state(campaign_id)
+    mutator_result = await mutator_agent.run(mutator_state)
+    mutator_result.update(round=3 + round_offset)
+    mutator_result.setdefault("intensity", 0.85)
+    await _commit(mutator_result, campaign_id, lock, sse_q)
+
+    if mutator_result["status"] == "success":
+        yield _scent_event(mutator_result)
+    else:
+        yield {
+            "type": "agent_offline", "phase": "swarm", "agent": "mutator",
+            "message": f"mutator offline: {mutator_result.get('error', 'unknown')[:120]}",
+        }
+
+    while not sse_q.empty():
+        yield sse_q.get_nowait()
+
+    # Phase 4: Audience Sniper — reads full trail including mutations, names micro-segments
+    yield {"type": "status", "phase": "swarm", "message": "Audience Sniper locking targets — identifying micro-segments..."}
+    sniper_state = await get_state(campaign_id)
+    sniper_result = await audience_sniper_agent.run(sniper_state)
+    sniper_result.update(round=4 + round_offset)
+    sniper_result.setdefault("intensity", 0.88)
+    await _commit(sniper_result, campaign_id, lock, sse_q)
+
+    if sniper_result["status"] == "success":
+        yield _scent_event(sniper_result)
+    else:
+        yield {
+            "type": "agent_offline", "phase": "swarm", "agent": "audience_sniper",
+            "message": f"audience_sniper offline: {sniper_result.get('error', 'unknown')[:120]}",
+        }
+
+    while not sse_q.empty():
+        yield sse_q.get_nowait()
+
+    await asyncio.to_thread(bus.stop)
+
+    # Emergent output — blackboard sorted by intensity, top scent per species
+    final_state = await get_state(campaign_id)
+    successful = [
+        o for o in final_state["observations"]
+        if o.get("status") == "success" and o.get("agent") != "user"
+    ]
 
     top_by_agent: dict = {}
-    for o in sorted(successful_obs, key=lambda x: x.get("signal", 1.0), reverse=True):
+    for o in sorted(successful, key=lambda x: x.get("intensity", 0.7), reverse=True):
         ag = o["agent"]
         if ag not in top_by_agent:
             top_by_agent[ag] = o
 
-    # User observation signal shows which framing resonated with the swarm
-    user_signal = next((o["signal"] for o in state["observations"] if o["agent"] == "user"), 1.0)
+    user_intensity = next(
+        (o["intensity"] for o in final_state["observations"] if o["agent"] == "user"), 0.7
+    )
 
     brief_output = {
-        "observations": successful_obs,
+        "observations": successful,
         "top_by_agent": top_by_agent,
-        "user_signal": user_signal,
+        "user_intensity": user_intensity,
         "agents_online":  list(top_by_agent.keys()),
-        "agents_offline": list({o["agent"] for o in state["observations"] if o["status"] == "failed"}),
+        "agents_offline": list({o["agent"] for o in final_state["observations"] if o.get("status") == "failed"}),
     }
 
-    state["brief_output"] = brief_output
-    state["status"] = "complete"
-    await update_state(campaign_id, state)
+    final_state["brief_output"] = brief_output
+    final_state["status"] = "complete"
+    await update_state(campaign_id, final_state)
 
     yield {"type": "complete", "phase": "swarm", "brief": brief_output}

@@ -3,356 +3,763 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Epiminds — Campaign Intelligence Swarm</title>
+  <title>Vespyr — Pheromone Intelligence Swarm</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-    body { font-family: 'Inter', sans-serif; background: #0a0a0f; color: #e2e8f0; }
+    :root {
+      --bg: #f5f7fa;
+      --surface: rgba(255,255,255,0.85);
+      --border: rgba(0,0,0,0.07);
+      --border-strong: rgba(0,0,0,0.1);
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: #1e293b; min-height: 100vh; }
     .mono { font-family: 'JetBrains Mono', monospace; }
-    .agent-card { animation: slideIn 0.3s ease-out; }
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateY(8px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .pulse-dot { animation: pulse 1.5s infinite; }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
-    }
-    .status-bar { border-left: 2px solid #334155; }
-    .builds-tag { font-size: 0.65rem; }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: #0f172a; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+    .glass { background: var(--surface); backdrop-filter: blur(12px); border: 1px solid var(--border); }
+    .glass-strong { background: rgba(255,255,255,0.95); backdrop-filter: blur(16px); border: 1px solid var(--border-strong); }
+    /* Gradient text */
+    .grad { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #c026d3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    /* Card slide-in */
+    .scent-card { animation: rise 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes rise { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    /* Pulse for live indicator */
+    .live-dot { animation: livepulse 2s ease-in-out infinite; }
+    @keyframes livepulse { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(5,150,105,0.4); } 50% { opacity:0.7; box-shadow:0 0 0 4px rgba(5,150,105,0); } }
+    /* Intensity bar transitions */
+    .ibar-fill { transition: width 0.7s ease, background-color 0.5s ease; }
+    /* Card reinforcement flash */
+    @keyframes scentFlash { 0% { box-shadow: 0 0 0 0 rgba(124,58,237,0); } 40% { box-shadow: 0 0 20px 4px rgba(124,58,237,0.18); } 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); } }
+    .reinforced { animation: scentFlash 0.9s ease-out forwards; }
+    /* Subtle grid bg on launch panel */
+    .grid-bg { background-image: radial-gradient(rgba(99,102,241,0.08) 1px, transparent 1px); background-size: 28px 28px; }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 2px; }
+    /* Status ticker */
+    .status-line { border-left: 2px solid rgba(0,0,0,0.08); }
   </style>
 </head>
-<body class="min-h-screen">
+<body>
 
-  <!-- Header -->
-  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+<!-- Header -->
+<header class="border-b border-black/[0.06] px-6 py-4 flex items-center justify-between sticky top-0 z-20" style="background:rgba(245,247,250,0.9);backdrop-filter:blur(20px)">
+  <div class="flex items-center gap-3">
+    <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#4f46e5,#7c3aed,#c026d3)">
+      <span style="font-size:13px">⬡</span>
+    </div>
     <div>
-      <h1 class="text-lg font-semibold tracking-tight">Epiminds</h1>
-      <p class="text-xs text-slate-500 mono">Campaign Intelligence Swarm</p>
+      <span class="font-semibold tracking-tight grad text-base">Vespyr</span>
+      <span class="text-slate-400 text-xs mono ml-2">pheromone swarm</span>
     </div>
-    <div id="status-badge" class="hidden items-center gap-2 text-xs mono px-3 py-1.5 rounded-full border border-slate-700 text-slate-400">
-      <span id="pulse" class="pulse-dot w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
-      <span id="status-text">Idle</span>
-    </div>
-  </header>
+  </div>
+  <div id="status-badge" class="hidden items-center gap-2 text-xs mono px-3 py-1.5 rounded-full" style="background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.07)">
+    <span id="live-dot" class="live-dot w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+    <span id="status-text" class="text-slate-500">Idle</span>
+  </div>
+</header>
 
-  <!-- Launch form -->
-  <div id="launch-panel" class="max-w-2xl mx-auto mt-16 px-6">
-    <div class="mb-10">
-      <h2 class="text-2xl font-semibold mb-2">Launch a Campaign</h2>
-      <p class="text-slate-400 text-sm">Describe what you want to analyze. A swarm of agents will read live signals and produce a campaign position.</p>
-    </div>
+<!-- LAUNCH PANEL -->
+<div id="launch-panel" class="grid-bg min-h-[calc(100vh-57px)] flex items-center justify-center px-6 py-16">
+  <div class="w-full max-w-xl">
 
-    <div class="space-y-4">
-      <div>
-        <label class="text-xs text-slate-400 mono uppercase tracking-widest block mb-1.5">What do you want to campaign for?</label>
-        <textarea id="prompt" rows="3" placeholder="e.g. Perplexity AI vs Google Search&#10;e.g. How should Notion position against Linear for enterprise teams?&#10;e.g. Launch campaign for a new AI coding tool"
-          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none leading-relaxed"></textarea>
-        <p class="text-xs text-slate-600 mono mt-1.5">Use "vs" to compare against a competitor, or describe freely</p>
+    <!-- Hero -->
+    <div class="text-center mb-10">
+      <div class="inline-flex items-center gap-2 text-xs mono px-3 py-1 rounded-full mb-5" style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:#4f46e5">
+        <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
+        5-species · pheromone-guided · GCP-native
       </div>
-      <button id="launch-btn" onclick="launch()"
-        class="w-full mt-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 transition-colors rounded-lg py-3 text-sm font-medium">
-        Launch Swarm
-      </button>
+      <h1 class="text-3xl font-semibold mb-3 grad">Deploy the Swarm</h1>
+      <p class="text-slate-500 text-sm leading-relaxed max-w-sm mx-auto">Scavengers forage live market signals. Strategists exploit them. The Mutator evolves the winning hook. No coordinator. Pure emergence.</p>
+    </div>
+
+    <!-- Input -->
+    <div class="glass-strong rounded-2xl p-5 mb-4">
+      <label class="text-xs text-slate-400 mono uppercase tracking-widest block mb-2">Campaign target</label>
+      <textarea id="prompt" rows="3"
+        placeholder="e.g.  HubSpot vs Salesforce — campaign for mid-market SaaS&#10;e.g.  Figma vs Adobe for independent designers&#10;e.g.  Launch campaign for an AI legal assistant"
+        class="w-full rounded-xl px-4 py-3 text-sm focus:outline-none placeholder-slate-400 resize-none leading-relaxed"
+        style="background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.07);color:#1e293b"></textarea>
+      <p class="text-xs text-slate-400 mono mt-2">Use "vs" to pit competitors — or describe freely</p>
+    </div>
+    <button id="launch-btn" onclick="launch()"
+      class="w-full py-3 rounded-xl text-sm font-semibold transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+      style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white">
+      Deploy Swarm ›
+    </button>
+
+    <!-- Species grid -->
+    <div class="mt-8 glass-strong rounded-2xl p-5">
+      <p class="text-xs mono text-slate-400 uppercase tracking-widest mb-4">Swarm species</p>
+      <div class="grid grid-cols-1 gap-2.5">
+        <div class="flex items-start gap-3 text-xs">
+          <span class="w-2 h-2 rounded-full bg-orange-500 mt-0.5 flex-shrink-0"></span>
+          <div><span class="mono text-orange-600 font-medium">scavenger·market</span><span class="text-slate-400 ml-2">BigQuery Trends + Serper → Price-War, Viral-Heat, Market-Void scents</span></div>
+        </div>
+        <div class="flex items-start gap-3 text-xs">
+          <span class="w-2 h-2 rounded-full bg-sky-500 mt-0.5 flex-shrink-0"></span>
+          <div><span class="mono text-sky-600 font-medium">scavenger·social</span><span class="text-slate-400 ml-2">Serper + NLP Sentiment → Sentiment-Bleed, Feature-Gap scents</span></div>
+        </div>
+        <div class="flex items-start gap-3 text-xs">
+          <span class="w-2 h-2 rounded-full bg-violet-500 mt-0.5 flex-shrink-0"></span>
+          <div><span class="mono text-violet-600 font-medium">strategist</span><span class="text-slate-400 ml-2">Exploits highest-intensity scents → writes campaign hooks</span></div>
+        </div>
+        <div class="flex items-start gap-3 text-xs">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 mt-0.5 flex-shrink-0"></span>
+          <div><span class="mono text-emerald-600 font-medium">forager</span><span class="text-slate-400 ml-2">Finds quiet market corners competitors haven't claimed</span></div>
+        </div>
+        <div class="flex items-start gap-3 text-xs">
+          <span class="w-2 h-2 rounded-full bg-fuchsia-500 mt-0.5 flex-shrink-0"></span>
+          <div><span class="mono text-fuchsia-600 font-medium">mutator</span><span class="text-slate-400 ml-2">Evolves top Strategy scent into 3 campaign-ready variations</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- STREAM PANEL -->
+<div id="stream-panel" class="hidden max-w-5xl mx-auto px-6 py-8">
+
+  <!-- Top bar -->
+  <div class="flex items-start justify-between mb-6">
+    <div>
+      <h2 id="stream-title" class="text-lg font-semibold leading-tight text-slate-800"></h2>
+      <p id="stream-subtitle" class="text-xs text-slate-400 mono mt-0.5"></p>
+    </div>
+    <button onclick="reset()" class="text-xs text-slate-400 hover:text-slate-700 transition-colors glass rounded-lg px-3 py-1.5 flex-shrink-0 ml-4">
+      ← New campaign
+    </button>
+  </div>
+
+  <!-- Live pheromone field -->
+  <div id="field-panel" class="glass-strong rounded-2xl px-5 py-4 mb-6" style="border-color:rgba(0,0,0,0.08)">
+    <p class="text-[10px] mono text-slate-400 uppercase tracking-widest mb-3">Pheromone Field — live intensity</p>
+    <div class="space-y-2.5" id="field-rows">
+      <!-- rows injected by JS -->
     </div>
   </div>
 
-  <!-- Live stream view -->
-  <div id="stream-panel" class="hidden max-w-5xl mx-auto px-6 py-8">
-
-    <!-- Top bar -->
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h2 id="stream-title" class="text-xl font-semibold"></h2>
-        <p id="stream-subtitle" class="text-xs text-slate-500 mono mt-0.5"></p>
-      </div>
-      <button onclick="reset()" class="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 rounded px-3 py-1.5 transition-colors">
-        New campaign
-      </button>
-    </div>
-
-    <!-- Agent legend -->
-    <div class="flex flex-wrap gap-2 mb-6">
-      <span class="text-xs mono px-2 py-1 rounded bg-blue-900/40 border border-blue-700/50 text-blue-300">signal_agent</span>
-      <span class="text-xs mono px-2 py-1 rounded bg-violet-900/40 border border-violet-700/50 text-violet-300">sentiment_agent</span>
-      <span class="text-xs mono px-2 py-1 rounded bg-amber-900/40 border border-amber-700/50 text-amber-300">friction_agent</span>
-      <span class="text-xs mono px-2 py-1 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">creative_agent</span>
-    </div>
-
-    <!-- Status log -->
-    <div id="status-log" class="mb-6 space-y-1"></div>
-
-    <!-- Round columns -->
-    <div id="rounds-container" class="space-y-8"></div>
-
-    <!-- Final brief -->
-    <div id="final-brief" class="hidden mt-10 border border-slate-700 rounded-xl p-6 bg-slate-900/50">
-      <h3 class="text-sm font-semibold mono text-slate-300 mb-4 uppercase tracking-widest">Swarm Output</h3>
-      <div id="brief-content" class="space-y-4"></div>
-    </div>
+  <!-- Watch bar (shown after swarm completes) -->
+  <div id="watch-bar" class="hidden mb-5 glass-strong rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap" style="border-color:rgba(99,102,241,0.15)">
+    <span class="text-xs mono text-slate-400 flex-shrink-0">Watch mode</span>
+    <select id="watch-interval" class="text-xs mono rounded-lg px-2 py-1.5 focus:outline-none" style="background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);color:#334155">
+      <option value="300000">every 5 min</option>
+      <option value="900000">every 15 min</option>
+      <option value="1800000">every 30 min</option>
+      <option value="3600000">every 1 hr</option>
+    </select>
+    <span class="text-[10px] mono text-slate-400">— same campaign · pheromone trail accumulates</span>
+    <div class="flex-1"></div>
+    <span id="watch-countdown" class="text-xs mono hidden" style="color:#4f46e5"></span>
+    <span id="watch-run-label" class="text-xs mono text-slate-400 hidden"></span>
+    <button id="watch-btn" onclick="toggleWatch()"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg transition-all duration-200 flex-shrink-0"
+      style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white">
+      Start Watch
+    </button>
   </div>
 
-  <script>
-    const BACKEND = 'http://localhost:8000';
+  <!-- Status log -->
+  <div id="status-log" class="mb-5 space-y-0.5"></div>
 
-    const AGENT_STYLE = {
-      user:            { bg: 'bg-indigo-950/60',  border: 'border-indigo-500/60',  badge: 'bg-indigo-800/60 text-indigo-200',  dot: 'bg-indigo-400' },
-      signal_agent:    { bg: 'bg-blue-900/30',    border: 'border-blue-700/40',    badge: 'bg-blue-800/60 text-blue-200',    dot: 'bg-blue-400' },
-      sentiment_agent: { bg: 'bg-violet-900/30', border: 'border-violet-700/40', badge: 'bg-violet-800/60 text-violet-200', dot: 'bg-violet-400' },
-      friction_agent:  { bg: 'bg-amber-900/30',  border: 'border-amber-700/40',  badge: 'bg-amber-800/60 text-amber-200',  dot: 'bg-amber-400' },
-      creative_agent:  { bg: 'bg-emerald-900/30',border: 'border-emerald-700/40',badge: 'bg-emerald-800/60 text-emerald-200',dot: 'bg-emerald-400' },
+  <!-- Scent cards grid -->
+  <div id="rounds-container"></div>
+
+  <!-- Intelligence report -->
+  <div id="final-brief" class="hidden mt-12">
+    <div class="flex items-center gap-3 mb-2">
+      <div class="h-px flex-1" style="background:linear-gradient(to right,rgba(99,102,241,0.3),transparent)"></div>
+      <span class="text-xs mono text-slate-400 uppercase tracking-widest">Intelligence Report</span>
+      <div class="h-px flex-1" style="background:linear-gradient(to left,rgba(99,102,241,0.3),transparent)"></div>
+    </div>
+    <p class="text-center text-xs text-slate-400 mono mb-8">Emergent output — what the swarm found that no single agent could</p>
+    <div id="brief-content" class="space-y-4"></div>
+  </div>
+</div>
+
+<script>
+  const BACKEND = 'http://localhost:8000';
+
+  let currentCampaignId = null;
+  let watchIntervalId = null;
+  let watchCountdownId = null;
+  let watchNextAt = 0;
+  let watchRunCount = 0;
+
+  // Live pheromone field state: agent → { intensity, scent_type, active }
+  const FIELD_AGENTS = [
+    { key: 'scavenger_market', label: 'scavenger·market' },
+    { key: 'scavenger_social', label: 'scavenger·social' },
+    { key: 'strategist',       label: 'strategist'       },
+    { key: 'forager',          label: 'forager'          },
+    { key: 'mutator',          label: 'mutator'          },
+    { key: 'audience_sniper',  label: 'audience·sniper'  },
+  ];
+  const fieldState = {};
+  FIELD_AGENTS.forEach(a => { fieldState[a.key] = { intensity: 0, scent_type: '', active: false }; });
+
+  function initFieldRows() {
+    const container = document.getElementById('field-rows');
+    container.innerHTML = '';
+    FIELD_AGENTS.forEach(({ key, label }) => {
+      const s = agentStyle(key);
+      container.innerHTML += `
+        <div class="flex items-center gap-3" id="field-row-${key}">
+          <div class="flex items-center gap-1.5 w-32 flex-shrink-0">
+            <span id="field-dot-${key}" class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:${s.color};opacity:0.25"></span>
+            <span class="text-[11px] mono" style="color:${s.color}">${label}</span>
+          </div>
+          <div class="flex-1 h-1.5 rounded-full" style="background:rgba(0,0,0,0.06)">
+            <div id="field-bar-${key}" class="h-1.5 rounded-full ibar-fill" style="width:0%;background:${s.color};opacity:0.7"></div>
+          </div>
+          <span id="field-pct-${key}" class="text-[10px] mono text-slate-400 w-8 text-right">—</span>
+          <span id="field-scent-${key}" class="text-[10px] mono text-slate-300 w-24 truncate"></span>
+        </div>`;
+    });
+  }
+
+  function updateFieldRow(agentKey, intensity, scent_type, active) {
+    const state = fieldState[agentKey];
+    if (!state) return;
+    state.intensity = intensity;
+    if (scent_type) state.scent_type = scent_type;
+    state.active = active;
+
+    const bar  = document.getElementById(`field-bar-${agentKey}`);
+    const pct  = document.getElementById(`field-pct-${agentKey}`);
+    const dot  = document.getElementById(`field-dot-${agentKey}`);
+    const scnt = document.getElementById(`field-scent-${agentKey}`);
+    if (!bar) return;
+
+    const pctVal = Math.round(intensity * 100);
+    bar.style.width = `${pctVal}%`;
+    bar.style.opacity = active ? '1' : '0.6';
+    pct.textContent = pctVal > 0 ? `${pctVal}%` : '—';
+    dot.style.opacity = active ? '1' : (pctVal > 0 ? '0.5' : '0.2');
+    if (active) {
+      dot.style.boxShadow = `0 0 6px 2px ${agentStyle(agentKey).color}44`;
+    } else {
+      dot.style.boxShadow = 'none';
+    }
+    if (state.scent_type) scnt.textContent = state.scent_type;
+  }
+
+  /* ─── Agent & scent styles ─── */
+  const AGENT = {
+    user:             { color: '#4f46e5', border: 'rgba(79,70,229,0.2)',   bg: 'rgba(79,70,229,0.05)'   },
+    scavenger_market: { color: '#ea580c', border: 'rgba(234,88,12,0.2)',   bg: 'rgba(234,88,12,0.05)'   },
+    scavenger_social: { color: '#0284c7', border: 'rgba(2,132,199,0.2)',   bg: 'rgba(2,132,199,0.05)'   },
+    strategist:       { color: '#7c3aed', border: 'rgba(124,58,237,0.2)',  bg: 'rgba(124,58,237,0.05)'  },
+    forager:          { color: '#059669', border: 'rgba(5,150,105,0.2)',   bg: 'rgba(5,150,105,0.05)'   },
+    mutator:          { color: '#c026d3', border: 'rgba(192,38,211,0.2)',  bg: 'rgba(192,38,211,0.05)'  },
+    audience_sniper:  { color: '#0f766e', border: 'rgba(15,118,110,0.2)',  bg: 'rgba(15,118,110,0.05)'  },
+  };
+  const SCENT_COLOR = {
+    'Price-War':       { bg: 'rgba(244,63,94,0.07)',   border: 'rgba(244,63,94,0.2)',   text: '#e11d48' },
+    'Viral-Heat':      { bg: 'rgba(245,158,11,0.07)',  border: 'rgba(245,158,11,0.2)',  text: '#b45309' },
+    'Market-Void':     { bg: 'rgba(16,185,129,0.07)',  border: 'rgba(16,185,129,0.2)',  text: '#047857' },
+    'Sentiment-Bleed': { bg: 'rgba(14,165,233,0.07)',  border: 'rgba(14,165,233,0.2)',  text: '#0369a1' },
+    'Feature-Gap':     { bg: 'rgba(139,92,246,0.07)',  border: 'rgba(139,92,246,0.2)',  text: '#6d28d9' },
+    'Strategy':        { bg: 'rgba(99,102,241,0.07)',  border: 'rgba(99,102,241,0.2)',  text: '#4338ca' },
+    'Mutation':        { bg: 'rgba(217,70,239,0.07)',  border: 'rgba(217,70,239,0.2)',  text: '#a21caf' },
+    'Audience':        { bg: 'rgba(15,118,110,0.07)',  border: 'rgba(15,118,110,0.2)',  text: '#0f766e' },
+    'Prompt':          { bg: 'rgba(0,0,0,0.03)',       border: 'rgba(0,0,0,0.08)',      text: '#64748b' },
+  };
+
+  function agentStyle(a) { return AGENT[a] || { color:'#64748b', border:'rgba(100,116,139,0.2)', bg:'rgba(0,0,0,0.03)' }; }
+  function scentStyle(s) { return SCENT_COLOR[s] || { bg:'rgba(0,0,0,0.03)', border:'rgba(0,0,0,0.08)', text:'#64748b' }; }
+
+  function scentBadge(type) {
+    if (!type) return '';
+    const sc = scentStyle(type);
+    return `<span class="text-[10px] mono font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+              style="background:${sc.bg};border:1px solid ${sc.border};color:${sc.text}">${type}</span>`;
+  }
+
+  function intensityBarHTML(intensity, agentName) {
+    const s = agentStyle(agentName);
+    const pct = Math.min(100, Math.round(intensity * 100));
+    const fillColor = intensity >= 0.75 ? s.color : intensity >= 0.45 ? s.color + 'bb' : s.color + '66';
+    return `<div class="flex items-center gap-2">
+      <div style="width:44px;height:3px;background:rgba(0,0,0,0.08);border-radius:4px;overflow:hidden">
+        <div class="ibar-fill" data-ibar style="width:${pct}%;height:100%;background:${fillColor};border-radius:4px"></div>
+      </div>
+      <span class="text-[11px] mono" data-ival style="color:${fillColor}">${intensity.toFixed(2)}</span>
+    </div>`;
+  }
+
+  /* ─── Launch ─── */
+  async function launch() {
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) return;
+    document.getElementById('launch-btn').disabled = true;
+    document.getElementById('launch-btn').textContent = 'Deploying…';
+
+    const res = await fetch(`${BACKEND}/campaign`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ prompt }),
+    });
+    const { campaign_id } = await res.json();
+    currentCampaignId = campaign_id;
+
+    document.getElementById('launch-panel').classList.add('hidden');
+    document.getElementById('stream-panel').classList.remove('hidden');
+    document.getElementById('stream-title').textContent = prompt.length > 70 ? prompt.slice(0,70)+'…' : prompt;
+    document.getElementById('stream-subtitle').textContent = `campaign · ${campaign_id.slice(0,8)}`;
+    document.getElementById('status-badge').classList.remove('hidden');
+    document.getElementById('status-badge').classList.add('flex');
+    setStatus('Connecting…');
+    streamCampaign(campaign_id);
+  }
+
+  function streamCampaign(id) {
+    const es = new EventSource(`${BACKEND}/stream/${id}`);
+    es.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'status')        { addStatus(msg.message); setStatus(msg.message.slice(0,55)); }
+      if (msg.type === 'agent_offline') { addStatus(`${msg.agent} offline — swarm continues`, 'warn'); }
+      if (msg.type === 'scent_reinforced') { reinforceCard(msg.agent, msg.round, msg.intensity); }
+      if (msg.type === 'observation')   { addScentCard(msg); }
+      if (msg.type === 'complete')      { onComplete(msg.brief); es.close(); }
+      if (msg.type === 'error')         { addStatus(msg.message, 'error'); es.close(); }
     };
+    es.onerror = () => { addStatus('Connection lost.', 'error'); es.close(); };
+  }
 
-    function agentStyle(agent) {
-      return AGENT_STYLE[agent] || { bg: 'bg-slate-800/50', border: 'border-slate-600', badge: 'bg-slate-700 text-slate-200', dot: 'bg-slate-400' };
+  function setStatus(t) { document.getElementById('status-text').textContent = t; }
+
+  let scrollT = null;
+  function scheduleScroll() {
+    clearTimeout(scrollT);
+    scrollT = setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 150);
+  }
+
+  function addStatus(msg, type) {
+    const color = type==='warn' ? '#d97706' : type==='error' ? '#dc2626' : '#94a3b8';
+    const el = document.createElement('div');
+    el.className = 'status-line pl-3 py-0.5 text-xs mono';
+    el.style.color = color;
+    el.textContent = `› ${msg}`;
+    document.getElementById('status-log').appendChild(el);
+    scheduleScroll();
+  }
+
+  let cardsGrid = null;
+  function getGrid() {
+    if (cardsGrid) return cardsGrid;
+    const g = document.createElement('div');
+    g.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3';
+    document.getElementById('rounds-container').appendChild(g);
+    cardsGrid = g;
+    return g;
+  }
+
+  function addScentCard(msg) {
+    const g = getGrid();
+    const s = agentStyle(msg.agent);
+    const intensity = msg.intensity ?? 0.7;
+    const isUser = msg.agent === 'user';
+    const isMutator = msg.agent === 'mutator';
+    const label = msg.agent.replace('_', '·');
+
+    const reactLabel = msg.round % 3 === 2 ? `<span class="text-[10px] mono" style="color:#94a3b8">↩ reacting</span>` : '';
+    const mutLabel   = msg.round % 3 === 0 && msg.round > 0 ? `<span class="text-[10px] mono" style="color:#94a3b8">↺ evolving</span>` : '';
+
+    const buildsHtml = (msg.builds_on || []).length
+      ? `<div class="mt-3 flex flex-wrap gap-1">${msg.builds_on.map(b =>
+          `<span class="text-[10px] mono px-1.5 py-0.5 rounded" style="background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);color:#94a3b8">${b}</span>`
+        ).join('')}</div>` : '';
+
+    const angleCol = { bold:'#e11d48', empathetic:'#0284c7', provocative:'#b45309', 'data-driven':'#059669', cultural:'#7c3aed' };
+
+    // Strategist hook options
+    let hookOptionsHtml = '';
+    if (msg.agent === 'strategist' && msg.payload?.hook_options?.length) {
+      hookOptionsHtml = `<div class="mt-3 space-y-1.5 pt-3" style="border-top:1px solid rgba(0,0,0,0.07)">
+        <p class="text-[10px] mono text-slate-400 uppercase tracking-wider mb-1.5">Hook options</p>` +
+        msg.payload.hook_options.map(h => `
+          <div class="rounded-lg px-3 py-2" style="background:rgba(124,58,237,0.04);border:1px solid rgba(124,58,237,0.12)">
+            <span class="text-xs font-medium text-slate-700">"${h.hook}"</span>
+            ${h.strategic_bet ? `<p class="text-[10px] text-slate-400 mt-0.5">${h.strategic_bet}</p>` : ''}
+          </div>`).join('') + `</div>`;
     }
 
-    async function launch() {
-      const prompt = document.getElementById('prompt').value.trim();
-      if (!prompt) return;
-
-      document.getElementById('launch-btn').disabled = true;
-      document.getElementById('launch-btn').textContent = 'Launching...';
-
-      const res = await fetch(`${BACKEND}/campaign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
-      const { campaign_id } = await res.json();
-
-      // Switch view
-      document.getElementById('launch-panel').classList.add('hidden');
-      document.getElementById('stream-panel').classList.remove('hidden');
-      document.getElementById('stream-title').textContent = prompt.length > 60 ? prompt.slice(0, 60) + '…' : prompt;
-      document.getElementById('stream-subtitle').textContent = `campaign ${campaign_id.slice(0, 8)}`;
-      document.getElementById('status-badge').classList.remove('hidden');
-      document.getElementById('status-badge').classList.add('flex');
-      setStatus('Connecting...');
-
-      streamCampaign(campaign_id);
+    // Mutator variations
+    let variationsHtml = '';
+    if (isMutator && msg.payload?.variations) {
+      variationsHtml = `<div class="mt-3 space-y-1.5 pt-3" style="border-top:1px solid rgba(0,0,0,0.07)">` +
+        msg.payload.variations.map(v => {
+          const c = angleCol[v.angle] || '#64748b';
+          return `<div class="text-xs rounded-lg px-3 py-2" style="background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.07)">
+            <span class="mono text-[10px]" style="color:#94a3b8">[${v.angle}]</span>
+            <span class="font-medium ml-1.5" style="color:${c}">"${v.hook}"</span>
+            ${v.media_fit ? `<span class="text-[10px] text-slate-400 ml-2">· ${v.media_fit}</span>` : ''}
+          </div>`;
+        }).join('') + `</div>`;
     }
 
-    function streamCampaign(campaign_id) {
-      const es = new EventSource(`${BACKEND}/stream/${campaign_id}`);
+    // Market signal extras
+    let signalExtrasHtml = '';
+    if (msg.agent === 'scavenger_market' && msg.top_signals?.length) {
+      signalExtrasHtml = `<div class="mt-2 space-y-0.5">` +
+        msg.top_signals.slice(0,3).map(s => `<p class="text-[11px] mono text-slate-400">↑ ${s}</p>`).join('') +
+        (msg.momentum_evidence ? `<p class="text-[11px] text-slate-400 mt-1">Momentum: ${msg.momentum_evidence}</p>` : '') +
+        `</div>`;
+    }
 
-      es.onmessage = (e) => {
-        const msg = JSON.parse(e.data);
+    // Social signal extras
+    let socialExtrasHtml = '';
+    if (msg.agent === 'scavenger_social') {
+      const lines = [
+        msg.dominant_emotion ? `<p class="text-[11px] text-slate-500 mt-1.5 font-medium">${msg.dominant_emotion}</p>` : '',
+        msg.tension ? `<p class="text-[11px] text-slate-400">${msg.tension}</p>` : '',
+        ...(msg.emotional_language || []).slice(0,2).map(q => `<p class="text-[11px] mono text-slate-400 italic">"${q}"</p>`),
+        msg.campaign_exploit ? `<p class="text-[11px] text-slate-500 mt-1">→ ${msg.campaign_exploit}</p>` : '',
+      ];
+      if (lines.some(Boolean)) socialExtrasHtml = `<div class="mt-2">${lines.join('')}</div>`;
+    }
 
-        if (msg.type === 'status') {
-          addStatus(msg.message, msg.phase);
-          setStatus(msg.message.slice(0, 60));
-        }
+    // Forager extras
+    let foragerExtrasHtml = '';
+    if (msg.agent === 'forager') {
+      const lines = [
+        msg.void ? `<p class="text-[11px] text-slate-500 mt-1.5 font-medium">Gap: ${msg.void}</p>` : '',
+        msg.primary_barrier ? `<p class="text-[11px] text-slate-400">Barrier: ${msg.primary_barrier}</p>` : '',
+        msg.unlock ? `<p class="text-[11px] text-emerald-600 mt-1">Unlock: ${msg.unlock}</p>` : '',
+      ];
+      if (lines.some(Boolean)) foragerExtrasHtml = `<div class="mt-2">${lines.join('')}</div>`;
+    }
 
-        if (msg.type === 'agent_offline') {
-          addStatus(`${msg.agent} offline — swarm continues`, 'warn');
-        }
+    // Audience Sniper extras
+    let audienceSniperHtml = '';
+    if (msg.agent === 'audience_sniper' && msg.payload?.segments?.length) {
+      const segs = msg.payload.segments.slice(0, 3);
+      const segCards = segs.map(seg => `
+        <div class="rounded-lg px-3 py-2" style="background:rgba(15,118,110,0.04);border:1px solid rgba(15,118,110,0.15)">
+          <p class="text-[11px] font-semibold text-slate-700">${seg.name || ''}</p>
+          ${seg.trigger ? `<p class="text-[11px] text-slate-400 mt-0.5">Trigger: ${seg.trigger}</p>` : ''}
+          ${seg.best_hook ? `<p class="text-[11px] text-teal-700 mt-0.5">Hook: ${seg.best_hook}</p>` : ''}
+          ${seg.targeting_layer ? `<p class="text-[10px] mono text-slate-400 mt-0.5">${seg.targeting_layer}</p>` : ''}
+        </div>`).join('');
+      audienceSniperHtml = `
+        <div class="mt-3 pt-3" style="border-top:1px solid rgba(0,0,0,0.07)">
+          <p class="text-[10px] mono text-slate-400 uppercase tracking-wider mb-2">Micro-segments</p>
+          <div class="space-y-1.5">${segCards}</div>
+          ${msg.payload.sequencing ? `<p class="text-[11px] text-slate-500 mt-2">Sequence: ${msg.payload.sequencing}</p>` : ''}
+        </div>`;
+    }
 
-        if (msg.type === 'signal_reinforced') {
-          updateCardSignal(msg.agent, msg.round, msg.signal);
-        }
+    const card = document.createElement('div');
+    card.dataset.cardKey = `${msg.agent}|${msg.round}`;
+    card.className = 'scent-card rounded-2xl p-4';
+    card.style.cssText = `background:${s.bg};border:1px solid ${s.border};opacity:${intensity >= 0.6 ? 1 : 0.8};transition:opacity 0.4s ease,box-shadow 0.4s ease`;
 
-        if (msg.type === 'observation') {
-          addObservation(msg);
-        }
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${s.color}"></span>
+          <span class="text-xs mono font-medium" style="color:${s.color}">${isUser ? '✎ prompt' : label}</span>
+          ${scentBadge(msg.scent_type)}
+          ${reactLabel}${mutLabel}
+        </div>
+        ${isUser ? '' : intensityBarHTML(intensity, msg.agent)}
+      </div>
+      <p class="text-sm leading-relaxed" style="color:${isUser ? '#3730a3' : '#334155'}">${msg.observation}</p>
+      ${signalExtrasHtml}${socialExtrasHtml}${foragerExtrasHtml}${audienceSniperHtml}${hookOptionsHtml}${variationsHtml}
+      ${buildsHtml}
+    `;
+    g.appendChild(card);
+    scheduleScroll();
+  }
 
-        if (msg.type === 'complete') {
-          setStatus('Complete');
-          document.getElementById('pulse').classList.remove('pulse-dot');
-          document.getElementById('pulse').classList.add('bg-slate-500');
-          renderBrief(msg.brief);
-          es.close();
-        }
+  function reinforceCard(agent, round, intensity) {
+    const card = document.querySelector(`[data-card-key="${agent}|${round}"]`);
+    if (!card) return;
+    const s = agentStyle(agent);
+    const pct = Math.min(100, Math.round(intensity * 100));
+    const fillEl = card.querySelector('[data-ibar]');
+    const valEl  = card.querySelector('[data-ival]');
+    const fillColor = intensity >= 0.75 ? s.color : intensity >= 0.45 ? s.color + 'bb' : s.color + '66';
+    if (fillEl) { fillEl.style.width = pct + '%'; fillEl.style.background = fillColor; }
+    if (valEl)  { valEl.textContent = intensity.toFixed(2); valEl.style.color = fillColor; }
+    card.style.opacity = intensity >= 0.6 ? '1' : '0.8';
+    card.classList.remove('reinforced');
+    void card.offsetWidth;
+    card.classList.add('reinforced');
+  }
 
-        if (msg.type === 'error') {
-          addStatus(msg.message, 'error');
-          es.close();
-        }
+  /* ─── Intelligence Report ─── */
+  function onComplete(brief) {
+    setStatus('Complete');
+    const dot = document.getElementById('live-dot');
+    dot.classList.remove('live-dot');
+    dot.style.background = '#cbd5e1';
+
+    const el = document.getElementById('final-brief');
+    const content = document.getElementById('brief-content');
+    el.classList.remove('hidden');
+
+    const top = brief.top_by_agent || {};
+
+    /* Stats banner */
+    const uInt = brief.user_intensity ?? 0.7;
+    const uPct = Math.round(uInt * 100);
+    content.innerHTML = `
+      <div class="grid grid-cols-3 gap-3 mb-6">
+        <div class="glass-strong rounded-xl p-4 text-center">
+          <div class="text-2xl font-semibold mb-0.5" style="color:#4f46e5">${brief.agents_online.length}</div>
+          <div class="text-[11px] text-slate-400 mono">species active</div>
+        </div>
+        <div class="glass-strong rounded-xl p-4 text-center">
+          <div class="text-2xl font-semibold mb-0.5 text-slate-700">${brief.observations.length}</div>
+          <div class="text-[11px] text-slate-400 mono">scents deposited</div>
+        </div>
+        <div class="glass-strong rounded-xl p-4 text-center" style="border-color:rgba(99,102,241,0.2);background:rgba(99,102,241,0.05)">
+          <div class="text-2xl font-semibold mono mb-0.5" style="color:#4f46e5">${uPct}%</div>
+          <div class="text-[11px] text-slate-400 mono">prompt resonance</div>
+        </div>
+      </div>
+    `;
+
+    /* Mutator hero */
+    const mut = top['mutator'];
+    if (mut?.payload?.variations) {
+      const angleMap = {
+        bold:          { bg:'rgba(225,29,72,0.06)',   border:'rgba(225,29,72,0.2)',   text:'#e11d48' },
+        empathetic:    { bg:'rgba(2,132,199,0.06)',   border:'rgba(2,132,199,0.2)',   text:'#0284c7' },
+        provocative:   { bg:'rgba(180,83,9,0.06)',    border:'rgba(180,83,9,0.2)',    text:'#b45309' },
+        'data-driven': { bg:'rgba(5,150,105,0.06)',   border:'rgba(5,150,105,0.2)',   text:'#047857' },
+        cultural:      { bg:'rgba(124,58,237,0.06)',  border:'rgba(124,58,237,0.2)',  text:'#6d28d9' },
       };
-
-      es.onerror = () => {
-        addStatus('Connection lost.', 'error');
-        es.close();
-      };
+      const varCards = mut.payload.variations.map(v => {
+        const c = angleMap[v.angle] || { bg:'rgba(0,0,0,0.03)', border:'rgba(0,0,0,0.08)', text:'#334155' };
+        return `<div class="rounded-xl p-4" style="background:${c.bg};border:1px solid ${c.border}">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] mono uppercase tracking-wider font-semibold" style="color:${c.text}">${v.angle}</span>
+            ${v.media_fit ? `<span class="text-[10px] mono text-slate-400">${v.media_fit}</span>` : ''}
+          </div>
+          <p class="text-sm font-semibold leading-snug mb-2" style="color:${c.text}">"${v.hook}"</p>
+          ${v.reason ? `<p class="text-[11px] text-slate-500">${v.reason}</p>` : ''}
+        </div>`;
+      }).join('');
+      const mInt = mut.intensity ?? 0.95;
+      const synthesis = mut.synthesis || mut.observation || '';
+      const abTest = mut.payload.ab_test_recommendation || '';
+      const killSignal = mut.payload.kill_signal || '';
+      content.innerHTML += `
+        <div class="glass-strong rounded-2xl p-5 mb-2" style="border-color:rgba(192,38,211,0.15)">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xs mono font-semibold uppercase tracking-widest" style="color:#c026d3">Evolved Campaign Hooks</span>
+              ${scentBadge('Mutation')}
+            </div>
+            ${intensityBarHTML(mInt, 'mutator')}
+          </div>
+          ${synthesis ? `<p class="text-sm text-slate-600 leading-relaxed mb-4">${synthesis}</p>` : ''}
+          ${mut.payload.source_hook ? `<p class="text-[11px] mono text-slate-400 mb-4">evolved from: "${mut.payload.source_hook}"</p>` : '<div class="mb-4"></div>'}
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">${varCards}</div>
+          ${abTest || killSignal ? `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 pt-3" style="border-top:1px solid rgba(0,0,0,0.07)">
+            ${abTest ? `<div class="rounded-lg px-3 py-2" style="background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.07)">
+              <p class="text-[10px] mono text-slate-400 uppercase tracking-wider mb-1">A/B Test First</p>
+              <p class="text-[11px] text-slate-600">${abTest}</p>
+            </div>` : ''}
+            ${killSignal ? `<div class="rounded-lg px-3 py-2" style="background:rgba(220,38,38,0.04);border:1px solid rgba(220,38,38,0.12)">
+              <p class="text-[10px] mono uppercase tracking-wider mb-1" style="color:#dc2626">Kill Signal</p>
+              <p class="text-[11px] text-slate-600">${killSignal}</p>
+            </div>` : ''}
+          </div>` : ''}
+        </div>
+      `;
     }
 
-    function setStatus(text) {
-      document.getElementById('status-text').textContent = text;
+    /* Audience Sniper block */
+    const sniper = top['audience_sniper'];
+    if (sniper && sniper.payload?.segments) {
+      const segmentColors = ['rgba(15,118,110,0.06)', 'rgba(15,118,110,0.04)', 'rgba(15,118,110,0.02)'];
+      const segCards = (sniper.payload.segments || []).map((seg, i) => `
+        <div class="rounded-xl p-4" style="background:${segmentColors[i] || segmentColors[2]};border:1px solid rgba(15,118,110,0.18)">
+          <p class="text-xs font-semibold text-teal-800 mb-1.5">${seg.name || ''}</p>
+          ${seg.description ? `<p class="text-[11px] text-slate-500 mb-2">${seg.description}</p>` : ''}
+          <div class="space-y-1">
+            ${seg.trigger ? `<div class="flex gap-1.5"><span class="text-[10px] mono text-teal-600 uppercase shrink-0 pt-px">Trigger</span><p class="text-[11px] text-slate-600">${seg.trigger}</p></div>` : ''}
+            ${seg.best_hook ? `<div class="flex gap-1.5"><span class="text-[10px] mono text-teal-600 uppercase shrink-0 pt-px">Hook</span><p class="text-[11px] text-slate-600 italic">${seg.best_hook}</p></div>` : ''}
+            ${seg.targeting_layer ? `<div class="flex gap-1.5"><span class="text-[10px] mono text-teal-600 uppercase shrink-0 pt-px">Target</span><p class="text-[11px] mono text-slate-500">${seg.targeting_layer}</p></div>` : ''}
+            ${seg.conversion_window ? `<div class="flex gap-1.5"><span class="text-[10px] mono text-teal-600 uppercase shrink-0 pt-px">Cycle</span><p class="text-[11px] text-slate-500">${seg.conversion_window}</p></div>` : ''}
+            ${seg.size ? `<div class="flex gap-1.5"><span class="text-[10px] mono text-teal-600 uppercase shrink-0 pt-px">Size</span><p class="text-[11px] text-slate-400">${seg.size}</p></div>` : ''}
+          </div>
+        </div>`).join('');
+      const sniperInt = sniper.intensity ?? 0.88;
+      content.innerHTML += `
+        <div class="glass-strong rounded-2xl p-5 mb-2" style="border-color:rgba(15,118,110,0.2)">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xs mono font-semibold uppercase tracking-widest" style="color:#0f766e">Target Segments</span>
+              ${scentBadge('Audience')}
+            </div>
+            ${intensityBarHTML(sniperInt, 'audience_sniper')}
+          </div>
+          ${sniper.observation ? `<p class="text-sm text-slate-600 leading-relaxed mb-4">${sniper.observation}</p>` : ''}
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">${segCards}</div>
+          ${sniper.cold_audience || sniper.sequencing ? `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 pt-3" style="border-top:1px solid rgba(0,0,0,0.07)">
+            ${sniper.cold_audience ? `<div class="rounded-lg px-3 py-2" style="background:rgba(220,38,38,0.04);border:1px solid rgba(220,38,38,0.1)">
+              <p class="text-[10px] mono uppercase tracking-wider mb-1" style="color:#dc2626">Skip This Audience</p>
+              <p class="text-[11px] text-slate-600">${sniper.cold_audience}</p>
+            </div>` : ''}
+            ${sniper.sequencing ? `<div class="rounded-lg px-3 py-2" style="background:rgba(15,118,110,0.04);border:1px solid rgba(15,118,110,0.12)">
+              <p class="text-[10px] mono text-teal-700 uppercase tracking-wider mb-1">Activation Sequence</p>
+              <p class="text-[11px] text-slate-600">${sniper.sequencing}</p>
+            </div>` : ''}
+          </div>` : ''}
+        </div>
+      `;
     }
 
-    let scrollTimer = null;
-    function scheduleScroll() {
-      clearTimeout(scrollTimer);
-      scrollTimer = setTimeout(() => {
-        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-      }, 120);
-    }
+    /* Lens cards */
+    const LENSES = [
+      { key:'scavenger_market', label:'Market Signal',  extras: o => [
+          ...(o.top_signals||[]).slice(0,3).map(s => `<p class="text-[11px] mono text-slate-400 mt-1">↑ ${s}</p>`),
+          o.momentum_evidence ? `<p class="text-[11px] text-slate-400 mt-1">Momentum: ${o.momentum_evidence}</p>` : '',
+          o.competitive_implication ? `<p class="text-[11px] text-slate-500 mt-2 font-medium">→ ${o.competitive_implication}</p>` : '',
+        ].join('') },
+      { key:'scavenger_social', label:'Social Signal',  extras: o => [
+          o.dominant_emotion ? `<p class="text-[11px] text-slate-600 mt-2 font-medium">${o.dominant_emotion}</p>` : '',
+          o.tension ? `<p class="text-[11px] text-slate-400">${o.tension}</p>` : '',
+          ...(o.emotional_language||[]).slice(0,2).map(q => `<p class="text-[11px] mono text-slate-400 italic mt-0.5">"${q}"</p>`),
+          o.campaign_exploit ? `<p class="text-[11px] text-slate-500 mt-2">→ ${o.campaign_exploit}</p>` : '',
+        ].join('') },
+      { key:'strategist',       label:'Strategy',       extras: o => {
+          const p = o.payload || {};
+          const hooks = (o.hook_options || p.hook_options || []).slice(0,2);
+          return [
+            p.hook ? `<p class="text-[11px] text-slate-600 mt-2 font-medium italic">"${p.hook}"</p>` : '',
+            ...hooks.map(h => `<p class="text-[11px] text-slate-400 mt-1">· "${h.hook}"</p>`),
+            o.channel_hypothesis ? `<p class="text-[11px] text-slate-400 mt-2">Channel: ${o.channel_hypothesis}</p>` : '',
+          ].join('');
+        }},
+      { key:'forager',          label:'Market Void',    extras: o => [
+          o.void ? `<p class="text-[11px] text-slate-600 mt-2 font-medium">${o.void}</p>` : '',
+          o.primary_barrier ? `<p class="text-[11px] text-slate-400">Barrier: ${o.primary_barrier}</p>` : '',
+          o.unlock ? `<p class="text-[11px] text-emerald-600 mt-1">Unlock: ${o.unlock}</p>` : '',
+          o.void_size ? `<p class="text-[11px] text-slate-400">Scale: ${o.void_size}</p>` : '',
+        ].join('') },
+    ];
 
-    function addStatus(message, phase) {
-      const log = document.getElementById('status-log');
-      const color = phase === 'warn' ? 'text-amber-400' : phase === 'error' ? 'text-red-400' : 'text-slate-500';
-      const el = document.createElement('div');
-      el.className = `status-bar pl-3 py-0.5 text-xs mono ${color}`;
-      el.textContent = `» ${message}`;
-      log.appendChild(el);
-      scheduleScroll();
-    }
-
-    let cardsGrid = null;
-
-    function getCardsGrid() {
-      if (cardsGrid) return cardsGrid;
-      const container = document.getElementById('rounds-container');
-      const grid = document.createElement('div');
-      grid.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3';
-      container.appendChild(grid);
-      cardsGrid = grid;
-      return cardsGrid;
-    }
-
-    function signalGlow(signal) {
-      if (signal >= 2.0) return 'ring-2 ring-offset-0';
-      if (signal >= 1.5) return 'ring-1 ring-offset-0';
-      return '';
-    }
-
-    function signalOpacity(signal) {
-      if (signal >= 1.5) return '1';
-      if (signal >= 0.8) return '0.85';
-      return '0.55';
-    }
-
-    function updateCardSignal(agent, round, signal) {
-      const card = document.querySelector(`[data-card-key="${agent}|${round}"]`);
-      if (!card) return;
-      const sigSpan = card.querySelector('[data-sig-bar]');
-      if (sigSpan) {
-        sigSpan.textContent = `${signal >= 1.5 ? '▓▓▓' : signal >= 0.85 ? '▓▓░' : '▓░░'} ${signal.toFixed(2)}`;
-      }
-      card.style.opacity = signalOpacity(signal);
-      // Flash the border to make emergence visible
-      const s = agentStyle(agent);
-      card.classList.remove(...card.classList);
-      card.className = `agent-card ${s.bg} border ${s.border} rounded-xl p-4 ${signalGlow(signal)} ring-2 ring-white/20`;
-      setTimeout(() => {
-        card.className = `agent-card ${s.bg} border ${s.border} rounded-xl p-4 ${signalGlow(signal)}`;
-      }, 800);
-    }
-
-    function addObservation(msg) {
-      const grid = getCardsGrid();
-      const s = agentStyle(msg.agent);
-      const sig = msg.signal || 1.0;
-
-      const buildsHtml = (msg.builds_on || []).length
-        ? `<div class="mt-2 flex flex-wrap gap-1">${msg.builds_on.map(b =>
-            `<span class="builds-tag mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">${b}</span>`
-          ).join('')}</div>`
-        : '';
-
-      const sigBar = `<span data-sig-bar class="mono text-xs text-slate-600" title="pheromone signal">${sig >= 1.5 ? '▓▓▓' : sig >= 0.85 ? '▓▓░' : '▓░░'} ${sig.toFixed(2)}</span>`;
-
-      const card = document.createElement('div');
-      card.dataset.cardKey = `${msg.agent}|${msg.round}`;
-      card.className = `agent-card ${s.bg} border ${s.border} rounded-xl p-4 ${signalGlow(sig)}`;
-      card.style.opacity = signalOpacity(sig);
-      card.style.transition = 'opacity 0.4s ease, box-shadow 0.4s ease';
-      const isUser = msg.agent === 'user';
-      card.innerHTML = `
+    const lensHtml = LENSES.map(({ key, label, extras }) => {
+      const o = top[key]; if (!o) return '';
+      const s = agentStyle(key);
+      const intensity = o.intensity ?? 0.7;
+      return `<div class="glass-strong rounded-2xl p-5" style="border-color:${s.border}">
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full ${s.dot} flex-shrink-0"></span>
-            <span class="text-xs mono font-medium ${s.badge.split(' ')[1]}">${isUser ? '✎ prompt' : msg.agent}</span>
-            ${msg.round === 2 ? `<span class="text-xs text-slate-600 mono">↩ reacting</span>` : ''}
+            <span class="w-2 h-2 rounded-full" style="background:${s.color}"></span>
+            <span class="text-xs mono font-semibold uppercase tracking-wider" style="color:${s.color}">${label}</span>
+            ${scentBadge(o.scent_type)}
           </div>
-          ${isUser ? '' : sigBar}
+          ${intensityBarHTML(intensity, key)}
         </div>
-        <p class="text-sm ${isUser ? 'text-indigo-200 font-medium' : 'text-slate-200'} leading-relaxed">${msg.observation}</p>
-        ${buildsHtml}
-      `;
-      grid.appendChild(card);
-      scheduleScroll();
-    }
+        <p class="text-sm text-slate-600 leading-relaxed">${o.observation || ''}</p>
+        ${extras(o)}
+      </div>`;
+    }).join('');
 
-    function renderBrief(brief) {
-      const el = document.getElementById('final-brief');
-      const content = document.getElementById('brief-content');
-      el.classList.remove('hidden');
+    content.innerHTML += `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">${lensHtml}</div>`;
+    el.scrollIntoView({ behavior: 'smooth' });
 
-      // Emergent blackboard — highest-signal observation per agent
-      const top = brief.top_by_agent || {};
-      const agentOrder = ['signal_agent', 'sentiment_agent', 'friction_agent', 'creative_agent'];
-      const labels = {
-        signal_agent:    'Signal',
-        sentiment_agent: 'Sentiment',
-        friction_agent:  'Friction',
-        creative_agent:  'Creative',
-      };
-      const extras = {
-        signal_agent:    o => o.momentum ? `<p class="text-xs text-slate-400 mt-2">Momentum: ${o.momentum}</p>` : '',
-        sentiment_agent: o => o.dominant_emotion ? `<p class="text-xs text-slate-400 mt-2">Dominant emotion: ${o.dominant_emotion}</p>` : '',
-        friction_agent:  o => o.primary_barrier ? `<p class="text-xs text-slate-400 mt-2">Primary barrier: ${o.primary_barrier}</p>` : '',
-        creative_agent:  o => o.headline_idea ? `<p class="text-xs text-slate-400 mt-2 italic">"${o.headline_idea}"</p>` : '',
-      };
+    // Show watch bar now that swarm is complete
+    document.getElementById('watch-bar').classList.remove('hidden');
+  }
 
-      agentOrder.forEach(ag => {
-        const o = top[ag];
-        if (!o) return;
-        const s = agentStyle(ag);
-        const sig = o.signal || 1.0;
-        const sigBar = `<span class="mono text-xs text-slate-600">${sig >= 1.5 ? '▓▓▓' : sig >= 0.85 ? '▓▓░' : '▓░░'} ${sig.toFixed(2)}</span>`;
-        content.innerHTML += `
-          <div class="${s.bg} border ${s.border} rounded-xl p-5">
-            <div class="flex items-center justify-between mb-2">
-              <div class="text-xs mono uppercase tracking-widest" style="color:inherit">${labels[ag]}</div>
-              ${sigBar}
-            </div>
-            <p class="text-sm text-slate-200 leading-relaxed">${o.observation || ''}</p>
-            ${extras[ag](o)}
-          </div>
-        `;
-      });
+  /* ─── Watch mode ─── */
+  function toggleWatch() {
+    if (watchIntervalId) { stopWatch(); } else { startWatch(); }
+  }
 
-      // Meta
-      const uSig = brief.user_signal || 1.0;
-      const uBar = uSig >= 1.5 ? '▓▓▓' : uSig >= 0.85 ? '▓▓░' : '▓░░';
-      content.innerHTML += `
-        <div class="grid grid-cols-3 gap-3 text-center">
-          <div class="bg-slate-800/60 rounded-lg p-3">
-            <div class="text-lg font-semibold">${brief.agents_online.length}</div>
-            <div class="text-xs text-slate-500 mono">agents online</div>
-          </div>
-          <div class="bg-slate-800/60 rounded-lg p-3">
-            <div class="text-lg font-semibold">${brief.observations.length}</div>
-            <div class="text-xs text-slate-500 mono">observations</div>
-          </div>
-          <div class="bg-indigo-900/30 border border-indigo-700/40 rounded-lg p-3">
-            <div class="text-lg font-semibold mono text-indigo-300">${uBar} ${uSig.toFixed(2)}</div>
-            <div class="text-xs text-slate-500 mono">prompt resonance</div>
-          </div>
-        </div>
-      `;
+  function startWatch() {
+    const ms = parseInt(document.getElementById('watch-interval').value);
+    watchRunCount = 0;
+    watchNextAt = Date.now() + ms;
+    const btn = document.getElementById('watch-btn');
+    btn.textContent = 'Stop Watch';
+    btn.style.background = 'rgba(220,38,38,0.08)';
+    btn.style.border = '1px solid rgba(220,38,38,0.2)';
+    btn.style.color = '#dc2626';
+    document.getElementById('watch-countdown').classList.remove('hidden');
+    watchCountdownId = setInterval(updateWatchCountdown, 1000);
+    watchIntervalId = setInterval(() => fireWatchRun(ms), ms);
+  }
 
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+  function stopWatch() {
+    clearInterval(watchIntervalId);
+    clearInterval(watchCountdownId);
+    watchIntervalId = null; watchCountdownId = null;
+    const btn = document.getElementById('watch-btn');
+    btn.textContent = 'Start Watch';
+    btn.style.background = 'linear-gradient(135deg,#4f46e5,#7c3aed)';
+    btn.style.border = '';
+    btn.style.color = 'white';
+    document.getElementById('watch-countdown').classList.add('hidden');
+    document.getElementById('watch-run-label').classList.add('hidden');
+  }
 
-    function reset() {
-      document.getElementById('launch-panel').classList.remove('hidden');
-      document.getElementById('stream-panel').classList.add('hidden');
-      document.getElementById('status-badge').classList.add('hidden');
-      document.getElementById('status-log').innerHTML = '';
-      document.getElementById('rounds-container').innerHTML = '';
-      document.getElementById('brief-content').innerHTML = '';
-      document.getElementById('final-brief').classList.add('hidden');
-      document.getElementById('launch-btn').disabled = false;
-      document.getElementById('launch-btn').textContent = 'Launch Swarm';
-      document.getElementById('prompt').value = '';
-      cardsGrid = null;
-    }
-  </script>
+  function updateWatchCountdown() {
+    const remaining = Math.max(0, watchNextAt - Date.now());
+    const mins = Math.floor(remaining / 60000);
+    const secs = Math.floor((remaining % 60000) / 1000);
+    document.getElementById('watch-countdown').textContent =
+      `next run in ${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  async function fireWatchRun(ms) {
+    watchRunCount++;
+    watchNextAt = Date.now() + ms;
+
+    ['status-log', 'rounds-container', 'brief-content'].forEach(id => document.getElementById(id).innerHTML = '');
+    document.getElementById('final-brief').classList.add('hidden');
+    cardsGrid = null;
+
+    const runLabel = document.getElementById('watch-run-label');
+    runLabel.classList.remove('hidden');
+    runLabel.textContent = `run #${watchRunCount + 1}`;
+
+    const dot = document.getElementById('live-dot');
+    dot.classList.add('live-dot');
+    dot.style.background = '#10b981';
+    setStatus('Watch — redeploying swarm…');
+    addStatus(`Watch run #${watchRunCount + 1} — same campaign · pheromone trail carries over`);
+
+    const es = new EventSource(`${BACKEND}/stream/${currentCampaignId}`);
+    es.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'status')           { addStatus(msg.message); setStatus(msg.message.slice(0,55)); }
+      if (msg.type === 'agent_offline')    { addStatus(`${msg.agent} offline — swarm continues`, 'warn'); }
+      if (msg.type === 'scent_reinforced') { reinforceCard(msg.agent, msg.round, msg.intensity); }
+      if (msg.type === 'observation')      { addScentCard(msg); }
+      if (msg.type === 'complete')         { onComplete(msg.brief); es.close(); }
+      if (msg.type === 'error')            { addStatus(msg.message, 'error'); es.close(); }
+    };
+    es.onerror = () => { addStatus('Connection lost.', 'error'); es.close(); };
+  }
+
+  function reset() {
+    stopWatch();
+    currentCampaignId = null;
+    watchRunCount = 0;
+    document.getElementById('launch-panel').classList.remove('hidden');
+    document.getElementById('stream-panel').classList.add('hidden');
+    document.getElementById('status-badge').classList.add('hidden');
+    ['status-log','rounds-container','brief-content'].forEach(id => document.getElementById(id).innerHTML = '');
+    document.getElementById('final-brief').classList.add('hidden');
+    document.getElementById('watch-bar').classList.add('hidden');
+    document.getElementById('watch-run-label').classList.add('hidden');
+    document.getElementById('launch-btn').disabled = false;
+    document.getElementById('launch-btn').textContent = 'Deploy Swarm ›';
+    document.getElementById('prompt').value = '';
+    cardsGrid = null;
+    const dot = document.getElementById('live-dot');
+    dot.classList.add('live-dot');
+    dot.style.background = '#10b981';
+  }
+</script>
 </body>
 </html>

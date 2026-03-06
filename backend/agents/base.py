@@ -20,8 +20,8 @@ async def call_gemini(prompt: str) -> dict:
         prompt,
         generation_config={
             "response_mime_type": "application/json",
-            "temperature": 1,
-            "max_output_tokens": 2048,
+            "temperature": 1.2,
+            "max_output_tokens": 4096,
         },
     )
     return json.loads(response.text)
@@ -64,7 +64,7 @@ class BaseAgent:
             return []
         results = await asyncio.gather(*[asyncio.to_thread(search_raw, q) for q in queries])
         combined = [item for sublist in results for item in sublist]
-        return combined[:10]
+        return combined[:18]
 
     def _format_web_context(self, results: list[dict]) -> str:
         if not results:
@@ -84,13 +84,15 @@ class BaseAgent:
         obs = state.get("observations", [])
         if not obs:
             return "None yet."
-        sorted_obs = sorted(obs, key=lambda o: o.get("signal", 1.0), reverse=True)[:12]
+        sorted_obs = sorted(obs, key=lambda o: o.get("intensity", 0.7), reverse=True)[:20]
         lines = []
         for o in sorted_obs:
-            sig = o.get("signal", 1.0)
-            strength = "▓▓▓" if sig >= 1.5 else "▓▓░" if sig >= 1.0 else "▓░░"
+            intensity = o.get("intensity", 0.7)
+            strength = "▓▓▓" if intensity >= 0.8 else "▓▓░" if intensity >= 0.5 else "▓░░"
+            scent = o.get("scent_type", "")
+            scent_label = f" [{scent}]" if scent else ""
             lines.append(
-                f"[{o['agent']} | Round {o['round']} | signal={sig:.2f} {strength}]\n"
+                f"[{o['agent']} | Round {o['round']} | intensity={intensity:.2f} {strength}{scent_label}]\n"
                 f"{o.get('observation', '')}"
             )
         return "\n\n".join(lines)
