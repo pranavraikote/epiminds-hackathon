@@ -1,4 +1,4 @@
-from agents.base import BaseAgent
+from agents.base import BaseAgent, _recent_range
 
 
 class AudienceSniper(BaseAgent):
@@ -6,13 +6,55 @@ class AudienceSniper(BaseAgent):
     role = "Audience Sniper"
     focus = "Identify micro-segments primed to convert — specific enough to drop straight into an ad platform"
 
+    async def run(self, state: dict) -> dict:
+        # Stash the trail on self so _search_queries can derive live terms from it
+        self._trail_state = state
+        return await super().run(state)
+
+    def _extract_trail_terms(self, state: dict) -> list[str]:
+        """Pull specific, searchable terms from the highest-intensity social and market scents."""
+        obs = state.get("observations", [])
+        terms = []
+
+        social = next(
+            (o for o in sorted(obs, key=lambda x: x.get("intensity", 0), reverse=True)
+             if o.get("scent_type") in ("Sentiment-Bleed", "Feature-Gap") and o.get("status") == "success"),
+            None
+        )
+        if social:
+            emotion = (social.get("dominant_emotion") or "").strip()
+            tension = (social.get("tension") or "").strip()
+            if emotion:
+                terms.append(emotion[:70])
+            if tension:
+                terms.append(tension[:70])
+
+        market = next(
+            (o for o in sorted(obs, key=lambda x: x.get("intensity", 0), reverse=True)
+             if o.get("scent_type") in ("Price-War", "Viral-Heat") and o.get("status") == "success"),
+            None
+        )
+        if market:
+            signals = market.get("top_signals") or []
+            if signals:
+                terms.append(signals[0][:70])
+
+        return terms
+
     def _search_queries(self, brief: dict) -> list[str]:
         product = brief.get("product", "")
+        date_range = _recent_range()
+        state = getattr(self, "_trail_state", {})
+        trail_terms = self._extract_trail_terms(state)
+
         queries = [
-            f"{product} buyer persona demographics psychographics 2025",
-            f"{product} early adopter profile who switches first",
-            f"{product} target audience intent signals purchase triggers",
+            f"{product} early adopter community switching intent {date_range}",
+            f"{product} who buys first audience profile {date_range}",
         ]
+        # Add one query per trail-derived term — these are the specific audiences
+        # the swarm actually found, not generic persona templates
+        for term in trail_terms[:2]:
+            queries.append(f"{term} audience community LinkedIn Reddit {date_range}")
         return queries
 
     def _build_prompt(self, state: dict, web_context: list[dict]) -> str:

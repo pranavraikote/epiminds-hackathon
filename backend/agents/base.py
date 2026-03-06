@@ -45,6 +45,10 @@ class BaseAgent:
     wake_on: frozenset = frozenset()
     wake_threshold: float = 0.0
 
+    # Pure reactors skip round 1 entirely — they never forage blind,
+    # only firing once the blackboard has real signal to synthesise.
+    react_only: bool = False
+
     async def run(self, state: dict) -> dict:
         brief = state["brief"]
         try:
@@ -109,7 +113,11 @@ class BaseAgent:
         obs = state.get("observations", [])
         if not obs:
             return "None yet."
-        sorted_obs = sorted(obs, key=lambda o: o.get("intensity", 0.7), reverse=True)[:20]
+        # Composite score: intensity keeps strong recent signals high;
+        # 1/round keeps early high-quality findings from being buried by decay.
+        def _score(o: dict) -> float:
+            return o.get("intensity", 0.7) * 0.6 + (1.0 / max(o.get("round", 1), 1)) * 0.4
+        sorted_obs = sorted(obs, key=_score, reverse=True)[:20]
         lines = []
         for o in sorted_obs:
             intensity = o.get("intensity", 0.7)

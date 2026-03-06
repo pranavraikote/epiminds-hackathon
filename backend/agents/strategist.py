@@ -6,8 +6,9 @@ class Strategist(BaseAgent):
     role = "Campaign Strategist"
     focus = "Exploit high-intensity scents — translate signals into campaign weapons"
 
-    wake_on = frozenset({"Price-War", "Viral-Heat", "Market-Void", "Sentiment-Bleed", "Feature-Gap"})
+    wake_on = frozenset({"Price-War", "Viral-Heat", "Market-Void", "Sentiment-Bleed", "Feature-Gap", "Doubt"})
     wake_threshold = 0.70
+    react_only = True  # never synthesises a near-empty blackboard
 
     def _search_queries(self, brief: dict) -> list[str]:
         product = brief.get("product", "")

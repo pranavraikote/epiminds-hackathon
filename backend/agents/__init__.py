@@ -4,12 +4,14 @@ from agents.strategist import Strategist
 from agents.forager import Forager
 from agents.mutator import Mutator
 from agents.audience_sniper import AudienceSniper
+from agents.skeptic import Skeptic
 
 all_agents = [
     ScavengerMarket(),
     ScavengerSocial(),
-    Strategist(),
     Forager(),
+    Skeptic(),
+    Strategist(),
 ]
 
 mutator_agent = Mutator()

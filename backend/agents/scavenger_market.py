@@ -7,7 +7,7 @@ class ScavengerMarket(BaseAgent):
     role = "Market Scavenger"
     focus = "High-velocity market signals — prices, funding, launches, growth vectors"
 
-    wake_on = frozenset({"Sentiment-Bleed", "Feature-Gap", "Strategy", "Market-Void"})
+    wake_on = frozenset({"Sentiment-Bleed", "Feature-Gap", "Strategy", "Market-Void", "Doubt"})
     wake_threshold = 0.65
 
     async def _fetch_context(self, brief: dict) -> list[dict]:

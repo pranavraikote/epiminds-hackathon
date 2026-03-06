@@ -125,7 +125,9 @@ async def _data_agent(
         return
 
     inbox = bus.subscribe()
-    local_round = 0  # this agent's reaction counter within this run
+    # react_only agents skip their independent first pass — they only ever
+    # synthesise real peer signal, never forage on a near-empty blackboard.
+    local_round = 1 if getattr(agent, 'react_only', False) else 0
 
     while local_round < MAX_AGENT_ROUNDS:
         # First pass runs immediately; subsequent passes wait for a new peer scent

@@ -7,7 +7,7 @@ class ScavengerSocial(BaseAgent):
     role = "Social Scavenger"
     focus = "Community sentiment, complaint clusters, feature gaps — what the crowd feels but rarely says clearly"
 
-    wake_on = frozenset({"Price-War", "Viral-Heat", "Market-Void", "Strategy"})
+    wake_on = frozenset({"Price-War", "Viral-Heat", "Market-Void", "Strategy", "Doubt"})
     wake_threshold = 0.65
 
     async def _fetch_context(self, brief: dict) -> list[dict]:

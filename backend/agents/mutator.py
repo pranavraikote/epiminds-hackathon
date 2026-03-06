@@ -27,14 +27,34 @@ class Mutator(BaseAgent):
         top = max(strategy_scents, key=lambda x: x.get("intensity", 0), default=None)
 
         if top:
-            payload = top.get("payload", {})
-            source_hook = payload.get("hook", top.get("observation", ""))
             source_agent = top.get("agent", "unknown")
             source_round = top.get("round", 1)
             source_intensity = top.get("intensity", 0.7)
             builds_ref = f'["{source_agent} | Round {source_round}"]'
+
+            hook_options = top.get("hook_options", [])
+            if hook_options:
+                hooks_text = "\n".join(
+                    f"  Option {i+1}: \"{h.get('hook', '')}\" — {h.get('strategic_bet', '')}"
+                    for i, h in enumerate(hook_options)
+                )
+                strategy_block = (
+                    f"ALL STRATEGY HOOK OPTIONS (deposited by {source_agent}, intensity {source_intensity:.2f}):\n"
+                    f"{hooks_text}\n\n"
+                    f"Strategic observation: {top.get('observation', '')}\n\n"
+                    f"Choose the hook with the strongest alignment to the highest-intensity data signals "
+                    f"on the full trail. State which option you chose and why in your observation field. "
+                    f"Then evolve it into 5 mutations."
+                )
+            else:
+                # Fallback: single hook from payload
+                single = top.get("payload", {}).get("hook", top.get("observation", ""))
+                strategy_block = (
+                    f"STRATEGY HOOK (deposited by {source_agent}, intensity {source_intensity:.2f}):\n"
+                    f"{single}\n\nStrategic observation: {top.get('observation', '')}"
+                )
         else:
-            source_hook = "No strategy scent found — generate from the brief directly."
+            strategy_block = "No strategy scent found — generate from the brief and pheromone trail directly."
             source_agent = "none"
             source_round = 0
             source_intensity = 0.0
@@ -63,13 +83,12 @@ class Mutator(BaseAgent):
             )
 
         return f"""You are a Strategy Mutator in a pheromone-guided intelligence swarm — the final evolution stage. You are a creative director, a copywriter, and a strategist in one.
-Your drive: take the highest-intensity Strategy scent, read the entire pheromone trail, and produce campaign-ready creative mutations that a brand could run tomorrow.
-You are not improving the hook. You are evolving it — different angles, different emotional registers, different audiences, different levels of aggression.
+Your drive: read the Strategist's full hook menu, pick the sharpest seed based on the pheromone trail, and evolve it into 5 campaign-ready mutations a brand could run tomorrow.
+You are not improving a hook. You are selecting the best strategic bet and then evolving it — different angles, different emotional registers, different levels of aggression.
 
 TARGET: {self._format_brief(brief)}
 
-HIGHEST-INTENSITY STRATEGY SCENT (intensity: {source_intensity:.2f}, deposited by: {source_agent}):
-{source_hook}
+{strategy_block}
 
 FULL PHEROMONE TRAIL — every signal the swarm collected:
 {prior}{performance_block}

@@ -73,7 +73,7 @@
     <div class="text-center mb-10">
       <div class="inline-flex items-center gap-2 text-xs mono px-3 py-1 rounded-full mb-5" style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:#4f46e5">
         <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
-        5-species · pheromone-guided · GCP-native
+        7-agent · pheromone-guided · GCP-native
       </div>
       <h1 class="text-3xl font-semibold mb-3 grad">Deploy the Swarm</h1>
       <p class="text-slate-500 text-sm leading-relaxed max-w-sm mx-auto">Scavengers forage live market signals. Strategists exploit them. The Mutator evolves the winning hook. No coordinator. Pure emergence.</p>
@@ -94,9 +94,9 @@
       Deploy Swarm ›
     </button>
 
-    <!-- Species grid -->
+    <!-- Agent grid -->
     <div class="mt-8 glass-strong rounded-2xl p-5">
-      <p class="text-xs mono text-slate-400 uppercase tracking-widest mb-4">Swarm species</p>
+      <p class="text-xs mono text-slate-400 uppercase tracking-widest mb-4">Swarm agents</p>
       <div class="grid grid-cols-1 gap-2.5">
         <div class="flex items-start gap-3 text-xs">
           <span class="w-2 h-2 rounded-full bg-orange-500 mt-0.5 flex-shrink-0"></span>
@@ -115,8 +115,12 @@
           <div><span class="mono text-emerald-600 font-medium">forager</span><span class="text-slate-400 ml-2">Finds quiet market corners competitors haven't claimed</span></div>
         </div>
         <div class="flex items-start gap-3 text-xs">
+          <span class="w-2 h-2 rounded-full bg-amber-700 mt-0.5 flex-shrink-0"></span>
+          <div><span class="mono text-amber-800 font-medium">skeptic</span><span class="text-slate-400 ml-2">Challenges the highest-intensity claim with counter-evidence — rates signal confidence</span></div>
+        </div>
+        <div class="flex items-start gap-3 text-xs">
           <span class="w-2 h-2 rounded-full bg-fuchsia-500 mt-0.5 flex-shrink-0"></span>
-          <div><span class="mono text-fuchsia-600 font-medium">mutator</span><span class="text-slate-400 ml-2">Evolves top Strategy scent into 5 campaign-ready hook variations</span></div>
+          <div><span class="mono text-fuchsia-600 font-medium">mutator</span><span class="text-slate-400 ml-2">Picks the sharpest Strategist hook and evolves it into 5 campaign-ready variations</span></div>
         </div>
         <div class="flex items-start gap-3 text-xs">
           <span class="w-2 h-2 rounded-full bg-teal-600 mt-0.5 flex-shrink-0"></span>
@@ -248,6 +252,7 @@
     { key: 'scavenger_social', label: 'scavenger·social' },
     { key: 'strategist',       label: 'strategist'       },
     { key: 'forager',          label: 'forager'          },
+    { key: 'skeptic',          label: 'skeptic'          },
     { key: 'mutator',          label: 'mutator'          },
     { key: 'audience_sniper',  label: 'audience·sniper'  },
   ];
@@ -307,6 +312,7 @@
     scavenger_social: { color: '#0284c7', border: 'rgba(2,132,199,0.2)',   bg: 'rgba(2,132,199,0.05)'   },
     strategist:       { color: '#7c3aed', border: 'rgba(124,58,237,0.2)',  bg: 'rgba(124,58,237,0.05)'  },
     forager:          { color: '#059669', border: 'rgba(5,150,105,0.2)',   bg: 'rgba(5,150,105,0.05)'   },
+    skeptic:          { color: '#b45309', border: 'rgba(180,83,9,0.2)',    bg: 'rgba(180,83,9,0.05)'    },
     mutator:          { color: '#c026d3', border: 'rgba(192,38,211,0.2)',  bg: 'rgba(192,38,211,0.05)'  },
     audience_sniper:  { color: '#0f766e', border: 'rgba(15,118,110,0.2)',  bg: 'rgba(15,118,110,0.05)'  },
   };
@@ -320,6 +326,7 @@
     'Mutation':        { bg: 'rgba(217,70,239,0.07)',  border: 'rgba(217,70,239,0.2)',  text: '#a21caf' },
     'Audience':        { bg: 'rgba(15,118,110,0.07)',  border: 'rgba(15,118,110,0.2)',  text: '#0f766e' },
     'Prompt':          { bg: 'rgba(0,0,0,0.03)',       border: 'rgba(0,0,0,0.08)',      text: '#64748b' },
+    'Doubt':           { bg: 'rgba(180,83,9,0.07)',    border: 'rgba(180,83,9,0.22)',   text: '#92400e' },
     'Followup':        { bg: 'rgba(79,70,229,0.06)',   border: 'rgba(79,70,229,0.2)',   text: '#4338ca' },
     'Performance':     { bg: 'rgba(5,150,105,0.08)',   border: 'rgba(5,150,105,0.25)',  text: '#047857' },
   };
@@ -592,7 +599,7 @@
       <div class="grid grid-cols-3 gap-3 mb-6">
         <div class="glass-strong rounded-xl p-4 text-center">
           <div class="text-2xl font-semibold mb-0.5" style="color:#4f46e5">${brief.agents_online.length}</div>
-          <div class="text-[11px] text-slate-400 mono">species active</div>
+          <div class="text-[11px] text-slate-400 mono">agents active</div>
         </div>
         <div class="glass-strong rounded-xl p-4 text-center">
           <div class="text-2xl font-semibold mb-0.5 text-slate-700">${brief.observations.length}</div>
