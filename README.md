@@ -96,16 +96,11 @@ Firestore over Redis: `on_snapshot` bridges into asyncio via `call_soon_threadsa
 Works best with a product, competitive tension, or market context:
 
 ```
-HubSpot vs Salesforce — campaign for mid-market SaaS
-Figma vs Adobe for independent designers
-Linear vs Jira for fast-moving engineering teams
-Launch campaign for an AI legal assistant
-Campaign to move developers from AWS to GCP
+Can you help me build a campaign for Epiminds?
+Launch a legal AI for solo lawyers who can't afford a $500/hr associate
+Campaign that can convince developers to move from from AWS to GCP
+Cursor vs GitHub Copilot — campaign for indie developers
 ```
-
-The `vs` keyword activates competitor-split search queries across all agents. Without it, agents run broader market intelligence queries.
-
-Less suited for: abstract brand exercises with no product, pure copywriting with no market context.
 
 ---
 
