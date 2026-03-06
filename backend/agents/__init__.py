@@ -14,3 +14,4 @@ all_agents = [
 
 mutator_agent = Mutator()
 audience_sniper_agent = AudienceSniper()
+strategist_agent = Strategist()

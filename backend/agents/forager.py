@@ -1,4 +1,4 @@
-from agents.base import BaseAgent
+from agents.base import BaseAgent, _recent_range
 
 
 class Forager(BaseAgent):
@@ -6,15 +6,19 @@ class Forager(BaseAgent):
     role = "Market Forager"
     focus = "Quiet corners — underserved segments, keywords competitors abandoned, audiences nobody has claimed"
 
+    wake_on = frozenset({"Strategy", "Price-War", "Viral-Heat", "Sentiment-Bleed"})
+    wake_threshold = 0.70
+
     def _search_queries(self, brief: dict) -> list[str]:
         product = brief.get("product", "")
         competitor = brief.get("competitor", "")
+        date_range = _recent_range()
         queries = [
             f"{product} underserved niche audience segment switching barriers",
-            f"{product} reasons people don't switch adoption friction 2025",
+            f"{product} reasons people don't switch adoption friction {date_range}",
         ]
         if competitor:
-            queries.append(f"{competitor} keyword gaps low competition ad opportunities 2025")
+            queries.append(f"{competitor} keyword gaps low competition ad opportunities {date_range}")
         return queries
 
     def _build_prompt(self, state: dict, web_context: list[dict]) -> str:
@@ -57,6 +61,8 @@ Return JSON only:
   "unlock": "The exact message, proof point, or offer mechanic that captures this void — specific enough to put in a brief",
   "what_others_missed": "Explicitly name what the other scents on the trail overlooked and why this void complements them",
   "payload": {{"opportunity": "One line — the gap, who it's for, and the unlock"}},
-  "builds_on": ["agent | Round N"],
+  "builds_on": <choose 1–3 from {self._format_buildable_scents(state)}, or [] if you are the first to act>,
   "done": false
-}}"""
+}}
+
+Set "done": true only on a reaction round (not your first) when no new void has been revealed by the trail — your negative-space finding is complete and fully deposited."""

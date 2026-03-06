@@ -1,11 +1,14 @@
 import asyncio
-from agents.base import BaseAgent
+from agents.base import BaseAgent, _recent_range
 
 
 class ScavengerMarket(BaseAgent):
     name = "scavenger_market"
     role = "Market Scavenger"
     focus = "High-velocity market signals — prices, funding, launches, growth vectors"
+
+    wake_on = frozenset({"Sentiment-Bleed", "Feature-Gap", "Strategy", "Market-Void"})
+    wake_threshold = 0.65
 
     async def _fetch_context(self, brief: dict) -> list[dict]:
         from data.trends_bq import get_rising_terms
@@ -17,12 +20,13 @@ class ScavengerMarket(BaseAgent):
     def _search_queries(self, brief: dict) -> list[str]:
         product = brief.get("product", "")
         competitor = brief.get("competitor", "")
+        date_range = _recent_range()
         queries = [
-            f"{product} pricing strategy market share 2025",
-            f"{product} growth funding revenue news 2025",
+            f"{product} pricing strategy market share {date_range}",
+            f"{product} growth funding revenue news {date_range}",
         ]
         if competitor:
-            queries.append(f"{competitor} pricing strategy market moves 2025")
+            queries.append(f"{competitor} pricing strategy market moves {date_range}")
         return queries
 
     def _build_prompt(self, state: dict, web_context: list[dict]) -> str:
@@ -73,6 +77,8 @@ Return JSON only — every string field must contain specific data, not placehol
     "signal_summary": "One punchy line — the signal another agent needs to hear to act on this",
     "magnitude": "Quantified — e.g. '34% search spike', '$2.1B funding', '40% price cut'"
   }},
-  "builds_on": ["agent | Round N"],
+  "builds_on": <choose 1–3 from {self._format_buildable_scents(state)}, or [] if you are the first to act>,
   "done": false
-}}"""
+}}
+
+Set "done": true only on a reaction round (not your first) when the new pheromone trail contains no meaningfully new market signal beyond what you already deposited — your best finding is fully on the board."""

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from datetime import datetime, timedelta
 
 import vertexai
 from vertexai.generative_models import GenerativeModel
@@ -12,6 +13,13 @@ if _project:
     vertexai.init(project=_project, location=_location)
 
 _model = GenerativeModel("gemini-2.0-flash-001")
+
+
+def _recent_range() -> str:
+    """Returns a human-readable date range covering the last 6 months."""
+    now = datetime.now()
+    start = now - timedelta(days=180)
+    return f"{start.strftime('%b %Y')}–{now.strftime('%b %Y')}"
 
 
 async def call_gemini(prompt: str) -> dict:
@@ -31,6 +39,11 @@ class BaseAgent:
     name: str = "base_agent"
     role: str = ""
     focus: str = ""
+
+    # Typed wake conditions — only react to peer scents of these types at or above this intensity.
+    # Empty frozenset means wake on any peer scent (default / backward-compat).
+    wake_on: frozenset = frozenset()
+    wake_threshold: float = 0.0
 
     async def run(self, state: dict) -> dict:
         brief = state["brief"]
@@ -79,6 +92,18 @@ class BaseAgent:
 
     def _build_prompt(self, state: dict, web_context: list[dict]) -> str:
         raise NotImplementedError
+
+    def _format_buildable_scents(self, state: dict) -> str:
+        """Returns a constrained JSON array of real scent references agents can cite in builds_on."""
+        obs = [
+            o for o in state.get("observations", [])
+            if o.get("status") == "success" and o.get("agent") != "user"
+        ]
+        if not obs:
+            return "[]"
+        top = sorted(obs, key=lambda x: x.get("intensity", 0), reverse=True)[:8]
+        refs = [f'"{o["agent"]} | Round {o["round"]}"' for o in top]
+        return "[" + ", ".join(refs) + "]"
 
     def _format_prior_observations(self, state: dict) -> str:
         obs = state.get("observations", [])

@@ -10,8 +10,8 @@ from sse_starlette.sse import EventSourceResponse
 
 load_dotenv()
 
-from state import init_state, get_state
-from swarm import run_swarm
+from state import init_state, get_state, add_scent
+from swarm import run_swarm, run_followup
 
 
 app = FastAPI(title="Campaign Intelligence Swarm")
@@ -26,6 +26,17 @@ app.add_middleware(
 
 class CampaignRequest(BaseModel):
     prompt: str
+
+
+class FollowupRequest(BaseModel):
+    prompt: str
+
+
+class FeedbackRequest(BaseModel):
+    hook_angle: str    # bold | empathetic | provocative | data-driven | cultural
+    metric_name: str   # ctr | cvr | cpa | roas — whatever the user tracked
+    metric_value: float
+    note: str = ""
 
 
 _VS_PATTERN = re.compile(r'\s+(?:vs\.?|versus|against|compared to)\s+', re.IGNORECASE)
@@ -66,16 +77,66 @@ async def create_campaign(req: CampaignRequest):
 
 
 @app.get("/stream/{campaign_id}")
-async def stream_campaign(campaign_id: str):
+async def stream_campaign(campaign_id: str, demo_kill: str = ""):
+    state = await get_state(campaign_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    killed = {a.strip() for a in demo_kill.split(",") if a.strip()} if demo_kill else None
+
+    async def event_generator():
+        async for update in run_swarm(campaign_id, demo_kill=killed):
+            yield {"data": json.dumps(update)}
+
+    return EventSourceResponse(event_generator())
+
+
+@app.post("/followup/{campaign_id}")
+async def followup_campaign(campaign_id: str, req: FollowupRequest):
     state = await get_state(campaign_id)
     if not state:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
     async def event_generator():
-        async for update in run_swarm(campaign_id):
+        async for update in run_followup(campaign_id, req.prompt):
             yield {"data": json.dumps(update)}
 
     return EventSourceResponse(event_generator())
+
+
+@app.post("/feedback/{campaign_id}")
+async def submit_feedback(campaign_id: str, req: FeedbackRequest):
+    state = await get_state(campaign_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    existing_rounds = [
+        o.get("round", 0) for o in state.get("observations", [])
+        if o.get("agent") != "user"
+    ]
+    round_num = max(existing_rounds, default=0) + 1
+
+    performance_scent = {
+        "agent": "user",
+        "round": round_num,
+        "intensity": 0.92,  # real-world signal — highest natural authority
+        "scent_type": "Performance",
+        "status": "success",
+        "observation": (
+            f"Real campaign data: '{req.hook_angle}' hook achieved "
+            f"{req.metric_value} {req.metric_name}. {req.note}".strip()
+        ),
+        "payload": {
+            "hook_angle": req.hook_angle,
+            "metric_name": req.metric_name,
+            "metric_value": req.metric_value,
+            "note": req.note,
+        },
+        "builds_on": [],
+        "done": True,
+    }
+    await add_scent(campaign_id, performance_scent)
+    return {"status": "feedback recorded", "round": round_num}
 
 
 @app.get("/result/{campaign_id}")

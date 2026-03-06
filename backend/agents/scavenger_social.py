@@ -1,11 +1,14 @@
 import asyncio
-from agents.base import BaseAgent
+from agents.base import BaseAgent, _recent_range
 
 
 class ScavengerSocial(BaseAgent):
     name = "scavenger_social"
     role = "Social Scavenger"
     focus = "Community sentiment, complaint clusters, feature gaps — what the crowd feels but rarely says clearly"
+
+    wake_on = frozenset({"Price-War", "Viral-Heat", "Market-Void", "Strategy"})
+    wake_threshold = 0.65
 
     async def _fetch_context(self, brief: dict) -> list[dict]:
         from data.nlp import analyze_snippets_sentiment
@@ -24,12 +27,13 @@ class ScavengerSocial(BaseAgent):
     def _search_queries(self, brief: dict) -> list[str]:
         product = brief.get("product", "")
         competitor = brief.get("competitor", "")
+        date_range = _recent_range()
         queries = [
-            f"{product} user complaints community reviews 2025",
-            f"{product} reddit users love hate frustration 2025",
+            f"{product} user complaints community reviews {date_range}",
+            f"{product} reddit users love hate frustration {date_range}",
         ]
         if competitor:
-            queries.append(f"{competitor} missing features user complaints switching 2025")
+            queries.append(f"{competitor} missing features user complaints switching {date_range}")
         return queries
 
     def _build_prompt(self, state: dict, web_context: list[dict]) -> str:
@@ -80,6 +84,8 @@ Return JSON only:
     "community_signal": "One line — the emotional wound another agent can aim a campaign at",
     "sentiment_score": "The NLP sentiment score from the data if available, e.g. -0.62"
   }},
-  "builds_on": ["agent | Round N"],
+  "builds_on": <choose 1–3 from {self._format_buildable_scents(state)}, or [] if you are the first to act>,
   "done": false
-}}"""
+}}
+
+Set "done": true only on a reaction round (not your first) when the new pheromone trail contains no emotionally new fault line beyond what you already deposited — your best community signal is fully on the board."""

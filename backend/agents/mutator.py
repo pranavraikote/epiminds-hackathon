@@ -42,6 +42,26 @@ class Mutator(BaseAgent):
 
         prior = self._format_prior_observations(state)
 
+        # Surface any real campaign performance data — these are the highest-value signals
+        performance_scents = [
+            o for o in state.get("observations", [])
+            if o.get("scent_type") == "Performance" and o.get("status") == "success"
+        ]
+        performance_block = ""
+        if performance_scents:
+            lines = []
+            for p in sorted(performance_scents, key=lambda x: x.get("round", 0)):
+                payload = p.get("payload", {})
+                lines.append(
+                    f"  [{payload.get('hook_angle', '?').upper()}] angle: "
+                    f"{payload.get('metric_value', '?')} {payload.get('metric_name', '?')} — {p.get('observation', '')}"
+                )
+            performance_block = (
+                "\n\nREAL CAMPAIGN PERFORMANCE DATA (highest-priority signal — mutations must build on what worked):\n"
+                + "\n".join(lines)
+                + "\n"
+            )
+
         return f"""You are a Strategy Mutator in a pheromone-guided intelligence swarm — the final evolution stage. You are a creative director, a copywriter, and a strategist in one.
 Your drive: take the highest-intensity Strategy scent, read the entire pheromone trail, and produce campaign-ready creative mutations that a brand could run tomorrow.
 You are not improving the hook. You are evolving it — different angles, different emotional registers, different audiences, different levels of aggression.
@@ -52,7 +72,7 @@ HIGHEST-INTENSITY STRATEGY SCENT (intensity: {source_intensity:.2f}, deposited b
 {source_hook}
 
 FULL PHEROMONE TRAIL — every signal the swarm collected:
-{prior}
+{prior}{performance_block}
 
 MISSION:
 Produce 5 distinct campaign-ready mutations. Each must be genuinely different — not the same idea reworded, but a different creative bet.

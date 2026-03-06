@@ -1,8 +1,8 @@
 import asyncio
 import threading
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
-from agents import all_agents, mutator_agent, audience_sniper_agent
+from agents import all_agents, mutator_agent, audience_sniper_agent, strategist_agent
 from state import get_state, update_state, add_scent, decay_and_reinforce
 
 REACTION_TIMEOUT = 60   # seconds an agent waits for a peer scent before going idle
@@ -50,6 +50,7 @@ class _FirestoreBus:
                         "type": "new_scent",
                         "from_agent": doc.get("agent", ""),
                         "scent_type": doc.get("scent_type", ""),
+                        "intensity": doc.get("intensity", 0.7),
                     }
                     for q in self._inboxes:
                         self._loop.call_soon_threadsafe(q.put_nowait, event)
@@ -112,7 +113,17 @@ MAX_AGENT_ROUNDS = 5  # maximum stigmergic reactions per agent per swarm run
 async def _data_agent(
     agent, campaign_id: str, bus: _FirestoreBus, sse_q: asyncio.Queue, lock: asyncio.Lock,
     round_offset: int = 0,
+    killed_agents: Optional[set] = None,
 ) -> None:
+    # Demo kill — agent goes offline immediately (short pause for dramatic effect)
+    if killed_agents and agent.name in killed_agents:
+        await asyncio.sleep(1.5)
+        await sse_q.put({
+            "type": "agent_offline", "phase": "swarm", "agent": agent.name,
+            "message": f"{agent.name} offline: connection terminated.",
+        })
+        return
+
     inbox = bus.subscribe()
     local_round = 0  # this agent's reaction counter within this run
 
@@ -125,16 +136,30 @@ async def _data_agent(
             try:
                 while True:
                     event = await asyncio.wait_for(inbox.get(), timeout=REACTION_TIMEOUT)
-                    if event["type"] == "new_scent" and event["from_agent"] != agent.name:
+                    if (
+                        event["type"] == "new_scent"
+                        and event["from_agent"] != agent.name
+                        and (not agent.wake_on or event["scent_type"] in agent.wake_on)
+                        and event.get("intensity", 0.0) >= agent.wake_threshold
+                    ):
                         break
             except asyncio.TimeoutError:
                 return  # no new peer stimulus — this agent is idle
 
-        state = await get_state(campaign_id)
-        result = await agent.run(state)
-        result.update(round=local_round + 1 + round_offset)
-        result.setdefault("intensity", 0.7)
-        await _commit(result, campaign_id, lock, sse_q)
+        try:
+            state = await get_state(campaign_id)
+            result = await agent.run(state)
+            result.update(round=local_round + 1 + round_offset)
+            result.setdefault("intensity", 0.7)
+            await _commit(result, campaign_id, lock, sse_q)
+        except Exception as e:
+            # Catches failures outside agent.run() (e.g. Firestore commit errors)
+            # that would otherwise be silently swallowed by gather(return_exceptions=True)
+            await sse_q.put({
+                "type": "agent_offline", "phase": "swarm", "agent": agent.name,
+                "message": f"{agent.name} offline (infra): {str(e)[:120]}",
+            })
+            return
 
         if result["status"] == "failed":
             err = result.get("error", "unknown error")
@@ -155,7 +180,7 @@ async def _data_agent(
 # Swarm runner
 # ---------------------------------------------------------------------------
 
-async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
+async def run_swarm(campaign_id: str, demo_kill: Optional[set] = None) -> AsyncGenerator[dict, None]:
     state = await get_state(campaign_id)
     if not state:
         yield {"type": "error", "message": "Campaign not found."}
@@ -202,7 +227,7 @@ async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
     lock = asyncio.Lock()
 
     tasks = [
-        asyncio.create_task(_data_agent(a, campaign_id, bus, sse_q, lock, round_offset))
+        asyncio.create_task(_data_agent(a, campaign_id, bus, sse_q, lock, round_offset, demo_kill))
         for a in all_agents
     ]
 
@@ -236,18 +261,23 @@ async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
 
     # Phase 3: Mutation — Mutator evolves the top Strategy scent
     yield {"type": "status", "phase": "swarm", "message": "Mutator entering the field — evolving top strategy..."}
-    mutator_state = await get_state(campaign_id)
-    mutator_result = await mutator_agent.run(mutator_state)
-    mutator_result.update(round=3 + round_offset)
-    mutator_result.setdefault("intensity", 0.85)
-    await _commit(mutator_result, campaign_id, lock, sse_q)
-
-    if mutator_result["status"] == "success":
-        yield _scent_event(mutator_result)
-    else:
+    try:
+        mutator_state = await get_state(campaign_id)
+        mutator_result = await mutator_agent.run(mutator_state)
+        mutator_result.update(round=3 + round_offset)
+        mutator_result.setdefault("intensity", 0.85)
+        await _commit(mutator_result, campaign_id, lock, sse_q)
+        if mutator_result["status"] == "success":
+            yield _scent_event(mutator_result)
+        else:
+            yield {
+                "type": "agent_offline", "phase": "swarm", "agent": "mutator",
+                "message": f"mutator offline: {mutator_result.get('error', 'unknown')[:120]}",
+            }
+    except Exception as e:
         yield {
             "type": "agent_offline", "phase": "swarm", "agent": "mutator",
-            "message": f"mutator offline: {mutator_result.get('error', 'unknown')[:120]}",
+            "message": f"mutator offline (infra): {str(e)[:120]}",
         }
 
     while not sse_q.empty():
@@ -255,18 +285,23 @@ async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
 
     # Phase 4: Audience Sniper — reads full trail including mutations, names micro-segments
     yield {"type": "status", "phase": "swarm", "message": "Audience Sniper locking targets — identifying micro-segments..."}
-    sniper_state = await get_state(campaign_id)
-    sniper_result = await audience_sniper_agent.run(sniper_state)
-    sniper_result.update(round=4 + round_offset)
-    sniper_result.setdefault("intensity", 0.88)
-    await _commit(sniper_result, campaign_id, lock, sse_q)
-
-    if sniper_result["status"] == "success":
-        yield _scent_event(sniper_result)
-    else:
+    try:
+        sniper_state = await get_state(campaign_id)
+        sniper_result = await audience_sniper_agent.run(sniper_state)
+        sniper_result.update(round=4 + round_offset)
+        sniper_result.setdefault("intensity", 0.88)
+        await _commit(sniper_result, campaign_id, lock, sse_q)
+        if sniper_result["status"] == "success":
+            yield _scent_event(sniper_result)
+        else:
+            yield {
+                "type": "agent_offline", "phase": "swarm", "agent": "audience_sniper",
+                "message": f"audience_sniper offline: {sniper_result.get('error', 'unknown')[:120]}",
+            }
+    except Exception as e:
         yield {
             "type": "agent_offline", "phase": "swarm", "agent": "audience_sniper",
-            "message": f"audience_sniper offline: {sniper_result.get('error', 'unknown')[:120]}",
+            "message": f"audience_sniper offline (infra): {str(e)[:120]}",
         }
 
     while not sse_q.empty():
@@ -304,3 +339,100 @@ async def run_swarm(campaign_id: str) -> AsyncGenerator[dict, None]:
     await update_state(campaign_id, final_state)
 
     yield {"type": "complete", "phase": "swarm", "brief": brief_output}
+
+
+# ---------------------------------------------------------------------------
+# Follow-up runner — re-enters the field with a directed question, runs
+# Strategist + Mutator against the existing pheromone trail.  Fast path: no
+# web re-scraping by Phase 1/2 agents, just strategic synthesis on live data.
+# ---------------------------------------------------------------------------
+
+async def run_followup(campaign_id: str, followup_prompt: str) -> AsyncGenerator[dict, None]:
+    state = await get_state(campaign_id)
+    if not state:
+        yield {"type": "error", "message": "Campaign not found."}
+        return
+
+    existing_rounds = [
+        o.get("round", 0) for o in state.get("observations", [])
+        if o.get("agent") != "user"
+    ]
+    round_offset = max(existing_rounds, default=0)
+
+    # Write the follow-up as a high-intensity directed signal — it overrides ambient signals
+    followup_scent = {
+        "agent": "user",
+        "round": round_offset + 1,
+        "intensity": 0.85,
+        "scent_type": "Followup",
+        "status": "success",
+        "observation": followup_prompt,
+        "payload": {"prompt": followup_prompt},
+        "builds_on": [],
+        "done": True,
+    }
+    await add_scent(campaign_id, followup_scent)
+
+    yield {
+        "type": "observation", "phase": "user", "agent": "user",
+        "round": round_offset + 1, "observation": followup_prompt,
+        "scent_type": "Followup", "intensity": 0.85, "builds_on": [], "payload": {},
+    }
+    yield {"type": "status", "phase": "followup", "message": "Follow-up received — Strategist re-evaluating against live trail..."}
+
+    lock = asyncio.Lock()
+    sse_q: asyncio.Queue = asyncio.Queue()
+
+    fresh_state = await get_state(campaign_id)
+    fresh_state["round"] = round_offset + 2
+    await update_state(campaign_id, fresh_state)
+
+    # Re-run Strategist focused on the follow-up direction
+    try:
+        s_state = await get_state(campaign_id)
+        s_result = await strategist_agent.run(s_state)
+        s_result.update(round=round_offset + 2)
+        s_result.setdefault("intensity", 0.8)
+        await _commit(s_result, campaign_id, lock, sse_q)
+        if s_result["status"] == "success":
+            yield _scent_event(s_result)
+        else:
+            yield {
+                "type": "agent_offline", "phase": "followup", "agent": "strategist",
+                "message": f"strategist offline: {s_result.get('error', 'unknown')[:120]}",
+            }
+    except Exception as e:
+        yield {
+            "type": "agent_offline", "phase": "followup", "agent": "strategist",
+            "message": f"strategist offline (infra): {str(e)[:120]}",
+        }
+
+    while not sse_q.empty():
+        yield sse_q.get_nowait()
+
+    yield {"type": "status", "phase": "followup", "message": "Mutator evolving updated strategy..."}
+
+    # Re-run Mutator — it reads the updated trail including the Followup scent
+    try:
+        m_state = await get_state(campaign_id)
+        m_result = await mutator_agent.run(m_state)
+        m_result.update(round=round_offset + 3)
+        m_result.setdefault("intensity", 0.88)
+        await _commit(m_result, campaign_id, lock, sse_q)
+        if m_result["status"] == "success":
+            yield _scent_event(m_result)
+        else:
+            yield {
+                "type": "agent_offline", "phase": "followup", "agent": "mutator",
+                "message": f"mutator offline: {m_result.get('error', 'unknown')[:120]}",
+            }
+    except Exception as e:
+        yield {
+            "type": "agent_offline", "phase": "followup", "agent": "mutator",
+            "message": f"mutator offline (infra): {str(e)[:120]}",
+        }
+
+    while not sse_q.empty():
+        yield sse_q.get_nowait()
+
+    yield {"type": "complete", "phase": "followup", "message": "Follow-up intelligence ready."}

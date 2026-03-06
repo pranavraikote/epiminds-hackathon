@@ -1,4 +1,4 @@
-from agents.base import BaseAgent
+from agents.base import BaseAgent, _recent_range
 
 
 class Strategist(BaseAgent):
@@ -6,15 +6,19 @@ class Strategist(BaseAgent):
     role = "Campaign Strategist"
     focus = "Exploit high-intensity scents — translate signals into campaign weapons"
 
+    wake_on = frozenset({"Price-War", "Viral-Heat", "Market-Void", "Sentiment-Bleed", "Feature-Gap"})
+    wake_threshold = 0.70
+
     def _search_queries(self, brief: dict) -> list[str]:
         product = brief.get("product", "")
         competitor = brief.get("competitor", "")
+        date_range = _recent_range()
         queries = [
-            f"{product} marketing campaign positioning differentiator 2025",
+            f"{product} marketing campaign positioning differentiator {date_range}",
             f"{product} brand story challenger narrative",
         ]
         if competitor:
-            queries.append(f"{product} vs {competitor} challenger strategy campaign")
+            queries.append(f"{product} vs {competitor} challenger strategy campaign {date_range}")
         return queries
 
     def _build_prompt(self, state: dict, web_context: list[dict]) -> str:
@@ -66,6 +70,8 @@ Return JSON only:
     "narrative_arc": "...",
     "headline_idea": "..."
   }},
-  "builds_on": ["agent | Round N"],
+  "builds_on": <choose 1–3 from {self._format_buildable_scents(state)}, or [] if you are the first to act>,
   "done": false
-}}"""
+}}
+
+Set "done": true only on a reaction round (not your first) when your strategy fully accounts for all high-intensity signals on the trail and there is no new tension to exploit — your campaign thesis is complete."""
