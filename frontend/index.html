@@ -38,6 +38,12 @@
     ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 2px; }
     /* Status ticker */
     .status-line { border-left: 2px solid rgba(0,0,0,0.08); }
+    /* Sticky chat bar */
+    #chat-bar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 30; transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s ease; }
+    #chat-bar.hidden { transform: translateY(100%); opacity: 0; pointer-events: none; }
+    #chat-bar:not(.hidden) { transform: translateY(0); opacity: 1; }
+    .chat-bar-inner { max-width: 80rem; margin: 0 auto; padding: 0 1.5rem 1.25rem; }
+    body.chat-open { padding-bottom: 84px; }
   </style>
 </head>
 <body>
@@ -110,7 +116,11 @@
         </div>
         <div class="flex items-start gap-3 text-xs">
           <span class="w-2 h-2 rounded-full bg-fuchsia-500 mt-0.5 flex-shrink-0"></span>
-          <div><span class="mono text-fuchsia-600 font-medium">mutator</span><span class="text-slate-400 ml-2">Evolves top Strategy scent into 3 campaign-ready variations</span></div>
+          <div><span class="mono text-fuchsia-600 font-medium">mutator</span><span class="text-slate-400 ml-2">Evolves top Strategy scent into 5 campaign-ready hook variations</span></div>
+        </div>
+        <div class="flex items-start gap-3 text-xs">
+          <span class="w-2 h-2 rounded-full bg-teal-600 mt-0.5 flex-shrink-0"></span>
+          <div><span class="mono text-teal-700 font-medium">audience·sniper</span><span class="text-slate-400 ml-2">Names 3 DSP-ready micro-segments with trigger events and targeting layers</span></div>
         </div>
       </div>
     </div>
@@ -174,6 +184,52 @@
     </div>
     <p class="text-center text-xs text-slate-400 mono mb-8">Emergent output — what the swarm found that no single agent could</p>
     <div id="brief-content" class="space-y-4"></div>
+
+    <!-- Feedback panel -->
+    <div id="feedback-panel" class="hidden mt-6 glass-strong rounded-xl px-4 py-4" style="border-color:rgba(15,118,110,0.18)">
+      <p class="text-[10px] mono text-slate-400 uppercase tracking-widest mb-3">Record Campaign Performance — swarm learns from real results</p>
+      <div class="flex items-center gap-2 flex-wrap">
+        <select id="feedback-angle" class="text-xs mono rounded-lg px-2 py-1.5 focus:outline-none" style="background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);color:#334155">
+          <option value="bold">bold</option>
+          <option value="empathetic">empathetic</option>
+          <option value="provocative">provocative</option>
+          <option value="data-driven">data-driven</option>
+          <option value="cultural">cultural</option>
+        </select>
+        <input id="feedback-metric" type="text" placeholder="metric (ctr / cvr / roas)" class="text-xs mono rounded-lg px-2 py-1.5 w-36 focus:outline-none" style="background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);color:#334155">
+        <input id="feedback-value" type="number" step="0.01" placeholder="value (e.g. 4.2)" class="text-xs mono rounded-lg px-2 py-1.5 w-32 focus:outline-none" style="background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);color:#334155">
+        <input id="feedback-note" type="text" placeholder="note (optional)" class="text-xs mono rounded-lg px-2 py-1.5 flex-1 min-w-0 focus:outline-none" style="background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);color:#334155">
+        <button onclick="submitFeedback()" id="feedback-btn"
+          class="text-xs font-semibold px-3 py-1.5 rounded-lg transition-all duration-200 flex-shrink-0"
+          style="background:rgba(15,118,110,0.1);border:1px solid rgba(15,118,110,0.2);color:#0f766e">
+          Record ›
+        </button>
+      </div>
+      <div id="feedback-status" class="hidden text-[11px] mono text-teal-600 mt-2.5 pl-1"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Sticky follow-up chat bar -->
+<div id="chat-bar" class="hidden" style="background:rgba(245,247,250,0.85);backdrop-filter:blur(20px);border-top:1px solid rgba(0,0,0,0.07)">
+  <div class="chat-bar-inner">
+    <div class="flex items-center gap-3">
+      <div class="flex-1 flex items-center gap-2 rounded-xl px-3 py-2.5" style="background:rgba(255,255,255,0.95);border:1px solid rgba(99,102,241,0.2)">
+        <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0"></span>
+        <input id="followup-input" type="text"
+          placeholder="Ask the swarm a follow-up — e.g. Focus on enterprise only. Make it more aggressive."
+          class="flex-1 text-sm bg-transparent focus:outline-none placeholder-slate-400"
+          style="color:#1e293b; min-width:0"
+          onkeydown="if(event.key==='Enter')sendFollowup()">
+        <span id="followup-thinking" class="hidden text-[10px] mono text-indigo-400 flex-shrink-0 animate-pulse">thinking…</span>
+      </div>
+      <button onclick="sendFollowup()" id="followup-btn"
+        class="text-sm font-semibold px-5 py-2.5 rounded-xl transition-all duration-200 hover:opacity-90 active:scale-[0.97] flex-shrink-0"
+        style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white">
+        Send ›
+      </button>
+    </div>
+    <p class="text-[10px] mono text-slate-400 mt-1.5 pl-1">Strategist + Mutator re-enter on the existing pheromone trail — no re-scraping</p>
   </div>
 </div>
 
@@ -264,6 +320,8 @@
     'Mutation':        { bg: 'rgba(217,70,239,0.07)',  border: 'rgba(217,70,239,0.2)',  text: '#a21caf' },
     'Audience':        { bg: 'rgba(15,118,110,0.07)',  border: 'rgba(15,118,110,0.2)',  text: '#0f766e' },
     'Prompt':          { bg: 'rgba(0,0,0,0.03)',       border: 'rgba(0,0,0,0.08)',      text: '#64748b' },
+    'Followup':        { bg: 'rgba(79,70,229,0.06)',   border: 'rgba(79,70,229,0.2)',   text: '#4338ca' },
+    'Performance':     { bg: 'rgba(5,150,105,0.08)',   border: 'rgba(5,150,105,0.25)',  text: '#047857' },
   };
 
   function agentStyle(a) { return AGENT[a] || { color:'#64748b', border:'rgba(100,116,139,0.2)', bg:'rgba(0,0,0,0.03)' }; }
@@ -315,17 +373,29 @@
     const es = new EventSource(`${BACKEND}/stream/${id}`);
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
-      if (msg.type === 'status')        { addStatus(msg.message); setStatus(msg.message.slice(0,55)); }
-      if (msg.type === 'agent_offline') { addStatus(`${msg.agent} offline — swarm continues`, 'warn'); }
+      if (msg.type === 'status')           { addStatus(msg.message); setStatus(msg.message.slice(0,55)); }
+      if (msg.type === 'agent_offline')    { addStatus(`${msg.agent} offline — swarm continues`, 'warn'); markAgentOffline(msg.agent); }
       if (msg.type === 'scent_reinforced') { reinforceCard(msg.agent, msg.round, msg.intensity); }
-      if (msg.type === 'observation')   { addScentCard(msg); }
-      if (msg.type === 'complete')      { onComplete(msg.brief); es.close(); }
-      if (msg.type === 'error')         { addStatus(msg.message, 'error'); es.close(); }
+      if (msg.type === 'observation')      { addScentCard(msg); updateFieldRow(msg.agent, msg.intensity ?? 0.7, msg.scent_type, true); }
+      if (msg.type === 'complete')         { onComplete(msg.brief); es.close(); }
+      if (msg.type === 'error')            { addStatus(msg.message, 'error'); es.close(); }
     };
     es.onerror = () => { addStatus('Connection lost.', 'error'); es.close(); };
   }
 
   function setStatus(t) { document.getElementById('status-text').textContent = t; }
+
+  function markAgentOffline(agentKey) {
+    const row = document.getElementById(`field-row-${agentKey}`);
+    if (!row) return;
+    row.style.opacity = '0.35';
+    const dot = document.getElementById(`field-dot-${agentKey}`);
+    if (dot) { dot.style.background = '#dc2626'; dot.style.opacity = '1'; dot.style.boxShadow = 'none'; }
+    const bar = document.getElementById(`field-bar-${agentKey}`);
+    if (bar) { bar.style.background = '#dc2626'; bar.style.opacity = '0.4'; }
+    const label = row.querySelector('span.mono');
+    if (label) label.style.textDecoration = 'line-through';
+  }
 
   let scrollT = null;
   function scheduleScroll() {
@@ -361,8 +431,11 @@
     const isMutator = msg.agent === 'mutator';
     const label = msg.agent.replace('_', '·');
 
-    const reactLabel = msg.round % 3 === 2 ? `<span class="text-[10px] mono" style="color:#94a3b8">↩ reacting</span>` : '';
-    const mutLabel   = msg.round % 3 === 0 && msg.round > 0 ? `<span class="text-[10px] mono" style="color:#94a3b8">↺ evolving</span>` : '';
+    const phaseAgents = new Set(['scavenger_market','scavenger_social','strategist','forager']);
+    const reactLabel = phaseAgents.has(msg.agent) && msg.round > 1
+      ? `<span class="text-[10px] mono" style="color:#94a3b8">↩ reacting</span>` : '';
+    const mutLabel = msg.agent === 'mutator'
+      ? `<span class="text-[10px] mono" style="color:#94a3b8">↺ evolving</span>` : '';
 
     const buildsHtml = (msg.builds_on || []).length
       ? `<div class="mt-3 flex flex-wrap gap-1">${msg.builds_on.map(b =>
@@ -444,7 +517,7 @@
         <div class="mt-3 pt-3" style="border-top:1px solid rgba(0,0,0,0.07)">
           <p class="text-[10px] mono text-slate-400 uppercase tracking-wider mb-2">Micro-segments</p>
           <div class="space-y-1.5">${segCards}</div>
-          ${msg.payload.sequencing ? `<p class="text-[11px] text-slate-500 mt-2">Sequence: ${msg.payload.sequencing}</p>` : ''}
+          ${msg.sequencing ? `<p class="text-[11px] text-slate-500 mt-2">Sequence: ${msg.sequencing}</p>` : ''}
         </div>`;
     }
 
@@ -501,8 +574,20 @@
     const top = brief.top_by_agent || {};
 
     /* Stats banner */
-    const uInt = brief.user_intensity ?? 0.7;
-    const uPct = Math.round(uInt * 100);
+    const topVals = Object.values(brief.top_by_agent || {}).filter(Boolean);
+    const avgIntensity = topVals.length
+      ? (topVals.reduce((s, o) => s + (o.intensity || 0.7), 0) / topVals.length)
+      : 0.7;
+    const offlineCount = (brief.agents_offline || []).length;
+    const offlineStat = offlineCount > 0
+      ? `<div class="glass-strong rounded-xl p-4 text-center" style="border-color:rgba(220,38,38,0.2);background:rgba(220,38,38,0.04)">
+          <div class="text-2xl font-semibold mb-0.5" style="color:#dc2626">${offlineCount}</div>
+          <div class="text-[11px] text-slate-400 mono">agents offline</div>
+        </div>`
+      : `<div class="glass-strong rounded-xl p-4 text-center" style="border-color:rgba(5,150,105,0.2);background:rgba(5,150,105,0.04)">
+          <div class="text-2xl font-semibold mb-0.5" style="color:#047857">all</div>
+          <div class="text-[11px] text-slate-400 mono">agents online</div>
+        </div>`;
     content.innerHTML = `
       <div class="grid grid-cols-3 gap-3 mb-6">
         <div class="glass-strong rounded-xl p-4 text-center">
@@ -513,10 +598,14 @@
           <div class="text-2xl font-semibold mb-0.5 text-slate-700">${brief.observations.length}</div>
           <div class="text-[11px] text-slate-400 mono">scents deposited</div>
         </div>
-        <div class="glass-strong rounded-xl p-4 text-center" style="border-color:rgba(99,102,241,0.2);background:rgba(99,102,241,0.05)">
-          <div class="text-2xl font-semibold mono mb-0.5" style="color:#4f46e5">${uPct}%</div>
-          <div class="text-[11px] text-slate-400 mono">prompt resonance</div>
+        ${offlineStat}
+      </div>
+      <div class="glass-strong rounded-xl px-4 py-3 mb-6 flex items-center gap-3" style="border-color:rgba(99,102,241,0.15)">
+        <span class="text-[10px] mono text-slate-400 uppercase tracking-wider flex-shrink-0">Avg signal strength</span>
+        <div class="flex-1 h-1.5 rounded-full" style="background:rgba(0,0,0,0.06)">
+          <div class="h-1.5 rounded-full ibar-fill" style="width:${Math.round(avgIntensity*100)}%;background:linear-gradient(to right,#4f46e5,#7c3aed)"></div>
         </div>
+        <span class="text-sm mono font-semibold flex-shrink-0" style="color:#4f46e5">${Math.round(avgIntensity*100)}%</span>
       </div>
     `;
 
@@ -666,8 +755,10 @@
     content.innerHTML += `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">${lensHtml}</div>`;
     el.scrollIntoView({ behavior: 'smooth' });
 
-    // Show watch bar now that swarm is complete
     document.getElementById('watch-bar').classList.remove('hidden');
+    document.getElementById('feedback-panel').classList.remove('hidden');
+    document.getElementById('chat-bar').classList.remove('hidden');
+    document.body.classList.add('chat-open');
   }
 
   /* ─── Watch mode ─── */
@@ -732,13 +823,106 @@
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'status')           { addStatus(msg.message); setStatus(msg.message.slice(0,55)); }
-      if (msg.type === 'agent_offline')    { addStatus(`${msg.agent} offline — swarm continues`, 'warn'); }
+      if (msg.type === 'agent_offline')    { addStatus(`${msg.agent} offline — swarm continues`, 'warn'); markAgentOffline(msg.agent); }
       if (msg.type === 'scent_reinforced') { reinforceCard(msg.agent, msg.round, msg.intensity); }
-      if (msg.type === 'observation')      { addScentCard(msg); }
+      if (msg.type === 'observation')      { addScentCard(msg); updateFieldRow(msg.agent, msg.intensity ?? 0.7, msg.scent_type, true); }
       if (msg.type === 'complete')         { onComplete(msg.brief); es.close(); }
       if (msg.type === 'error')            { addStatus(msg.message, 'error'); es.close(); }
     };
     es.onerror = () => { addStatus('Connection lost.', 'error'); es.close(); };
+  }
+
+  /* ─── Follow-up ─── */
+  async function sendFollowup() {
+    const input = document.getElementById('followup-input');
+    const prompt = input.value.trim();
+    if (!prompt || !currentCampaignId) return;
+
+    const btn = document.getElementById('followup-btn');
+    const thinking = document.getElementById('followup-thinking');
+    btn.disabled = true;
+    btn.textContent = '…';
+    input.value = '';
+    thinking.classList.remove('hidden');
+
+    const dot = document.getElementById('live-dot');
+    dot.classList.add('live-dot');
+    dot.style.background = '#10b981';
+    setStatus('Follow-up — re-entering field…');
+    addStatus(`Follow-up: "${prompt.length > 60 ? prompt.slice(0,60)+'…' : prompt}"`);
+
+    // Scroll up to see the incoming cards
+    document.getElementById('rounds-container').scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+    try {
+      const res = await fetch(`${BACKEND}/followup/${currentCampaignId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const msg = JSON.parse(line.slice(6));
+            if (msg.type === 'status')        { addStatus(msg.message); setStatus(msg.message.slice(0,55)); }
+            if (msg.type === 'agent_offline') { addStatus(`${msg.agent} offline`, 'warn'); }
+            if (msg.type === 'observation')   { addScentCard(msg); updateFieldRow(msg.agent, msg.intensity ?? 0.7, msg.scent_type, true); }
+            if (msg.type === 'complete')      {
+              setStatus('Follow-up complete');
+              dot.classList.remove('live-dot');
+              dot.style.background = '#cbd5e1';
+            }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      addStatus('Follow-up connection error.', 'error');
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Send ›';
+    thinking.classList.add('hidden');
+    input.focus();
+  }
+
+  /* ─── Feedback ─── */
+  async function submitFeedback() {
+    const angle  = document.getElementById('feedback-angle').value;
+    const metric = document.getElementById('feedback-metric').value.trim() || 'ctr';
+    const value  = parseFloat(document.getElementById('feedback-value').value) || 0;
+    const note   = document.getElementById('feedback-note').value.trim();
+    if (!currentCampaignId) return;
+
+    const btn = document.getElementById('feedback-btn');
+    btn.disabled = true;
+    btn.textContent = 'Recording…';
+
+    try {
+      await fetch(`${BACKEND}/feedback/${currentCampaignId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hook_angle: angle, metric_name: metric, metric_value: value, note }),
+      });
+      const statusEl = document.getElementById('feedback-status');
+      statusEl.classList.remove('hidden');
+      statusEl.textContent = `✓ Recorded — "${angle}" hook · ${value} ${metric}. Swarm will prioritise this signal on the next run.`;
+    } catch (e) {
+      addStatus('Feedback failed to record.', 'error');
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Record ›';
   }
 
   function reset() {
@@ -751,6 +935,10 @@
     ['status-log','rounds-container','brief-content'].forEach(id => document.getElementById(id).innerHTML = '');
     document.getElementById('final-brief').classList.add('hidden');
     document.getElementById('watch-bar').classList.add('hidden');
+    document.getElementById('chat-bar').classList.add('hidden');
+    document.getElementById('feedback-panel').classList.add('hidden');
+    document.getElementById('feedback-status').classList.add('hidden');
+    document.body.classList.remove('chat-open');
     document.getElementById('watch-run-label').classList.add('hidden');
     document.getElementById('launch-btn').disabled = false;
     document.getElementById('launch-btn').textContent = 'Deploy Swarm ›';
